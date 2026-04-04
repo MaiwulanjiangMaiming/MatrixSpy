@@ -3,15 +3,16 @@
   "displayName": "MatrixSpy",
   "description": "Spy on your MATLAB .mat files - View and visualize matrices with style",
   "version": "1.0.0",
-  "publisher": "maiwulanjiang",
+  "publisher": "maiwulanjiangmaiming",
   "repository": {
     "type": "git",
-    "url": "https://github.com/maiwulanjiang/mat-file-viewer.git"
+    "url": "https://github.com/MaiwulanjiangMaiming/MatrixSpy.git"
   },
   "bugs": {
-    "url": "https://github.com/maiwulanjiang/mat-file-viewer/issues"
+    "url": "https://github.com/MaiwulanjiangMaiming/MatrixSpy/issues"
   },
-  "homepage": "https://github.com/maiwulanjiang/mat-file-viewer#readme",
+  "homepage": "https://github.com/MaiwulanjiangMaiming/MatrixSpy#readme",
+  "license": "MIT",
   "keywords": [
     "matlab",
     "mat",
