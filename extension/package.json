@@ -1,0 +1,148 @@
+{
+  "name": "matrixspy",
+  "displayName": "MatrixSpy",
+  "description": "Spy on your MATLAB .mat files - View and visualize matrices with style",
+  "version": "1.0.0",
+  "publisher": "maiwulanjiang",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maiwulanjiang/mat-file-viewer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/maiwulanjiang/mat-file-viewer/issues"
+  },
+  "homepage": "https://github.com/maiwulanjiang/mat-file-viewer#readme",
+  "keywords": [
+    "matlab",
+    "mat",
+    "matrix",
+    "data",
+    "visualization",
+    "viewer",
+    "science",
+    "research"
+  ],
+  "icon": "resources/Plugin.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Data Science",
+    "Visualization"
+  ],
+  "activationEvents": [
+    "onCustomEditor:matrixspy.matFile",
+    "onCommand:matrixspy.openFile"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "matrixspy.openFile",
+        "title": "Open MAT File",
+        "category": "MatrixSpy"
+      },
+      {
+        "command": "matrixspy.exportCSV",
+        "title": "Export to CSV",
+        "category": "MatrixSpy"
+      },
+      {
+        "command": "matrixspy.exportJSON",
+        "title": "Export to JSON",
+        "category": "MatrixSpy"
+      },
+      {
+        "command": "matrixspy.refreshVariables",
+        "title": "Refresh Variables",
+        "category": "MatrixSpy",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "matrixspy",
+          "title": "MatrixSpy",
+          "icon": "resources/Sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "matrixspy": [
+        {
+          "id": "matrixspyVariables",
+          "name": "Variables"
+        }
+      ]
+    },
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "matrixspy.openFile",
+          "when": "resourceExtname == .mat",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "matrixspy.refreshVariables",
+          "when": "view == matrixspyVariables",
+          "group": "navigation"
+        }
+      ]
+    },
+    "customEditors": [
+      {
+        "viewType": "matrixspy.matFile",
+        "displayName": "MatrixSpy",
+        "selector": [
+          {
+            "filenamePattern": "*.mat"
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "MatrixSpy",
+      "properties": {
+        "matrixspy.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Path to Python executable"
+        },
+        "matrixspy.maxDataSize": {
+          "type": "number",
+          "default": 10000,
+          "description": "Maximum data size to load (number of elements)"
+        },
+        "matrixspy.enableMRI": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable MRI-specific features"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {}
+}

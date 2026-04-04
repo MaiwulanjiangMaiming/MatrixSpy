@@ -1,0 +1,73 @@
+.tree-node {
+  user-select: none;
+}
+
+.node-content {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.node-content:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.node-content.selected {
+  background-color: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.expand-icon {
+  display: inline-block;
+  width: 16px;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.expand-icon.expanded {
+  transform: rotate(90deg);
+}
+
+.node-icon {
+  margin-right: 6px;
+  font-size: 8px;
+}
+
+.icon-ndarray {
+  color: #4ec9b0;
+}
+
+.icon-struct {
+  color: #dcdcaa;
+}
+
+.icon-complex {
+  color: #ce9178;
+}
+
+.icon-string {
+  color: #ce9178;
+}
+
+.icon-number {
+  color: #b5cea8;
+}
+
+.node-name {
+  font-weight: 500;
+  margin-right: 8px;
+}
+
+.node-description {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  margin-left: auto;
+}
+
+.node-children {
+  margin-left: 16px;
+}
