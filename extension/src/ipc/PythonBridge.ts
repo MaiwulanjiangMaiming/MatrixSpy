@@ -18,19 +18,13 @@ export class PythonBridge {
     private process: ChildProcess | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {
-        const projectRoot = path.join(context.extensionPath, '..');
-        const venvPython = path.join(projectRoot, 'venv', 'bin', 'python');
-        const config = vscode.workspace.getConfiguration('matViewer');
+        const extensionPath = context.extensionPath;
+        const config = vscode.workspace.getConfiguration('matrixspy');
 
-        if (fs.existsSync(venvPython)) {
-            this.pythonPath = venvPython;
-            console.log(`${LOG_PREFIX} Using venv Python:`, venvPython);
-        } else {
-            this.pythonPath = config.get<string>('pythonPath', 'python3');
-            console.log(`${LOG_PREFIX} Using system Python:`, this.pythonPath);
-        }
+        this.pythonPath = config.get<string>('pythonPath', 'python3');
+        console.log(`${LOG_PREFIX} Using Python:`, this.pythonPath);
 
-        this.scriptPath = path.join(projectRoot, 'python', 'high_perf_parser.py');
+        this.scriptPath = path.join(extensionPath, 'python', 'high_perf_parser.py');
         console.log(`${LOG_PREFIX} Python script path:`, this.scriptPath);
     }
 

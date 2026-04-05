@@ -7,7 +7,6 @@ tsconfig.json
 .vscodeignore
 node_modules/**
 test-files/**
-python/**
 webview/**
 test/**
 *.map
