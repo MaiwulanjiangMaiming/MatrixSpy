@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 interface TensorViewProps {
   data: any;
@@ -10,31 +10,63 @@ const TensorView: React.FC<TensorViewProps> = ({ data, vscode, variableName }) =
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [sliceIndex, setSliceIndex] = useState(0);
   const [axis, setAxis] = useState(2);
+  const [sliceData, setSliceData] = useState<any[][] | null>(null);
+  const [loading, setLoading] = useState(false);
 
   if (!data.shape || data.shape.length < 3) {
     return <div className="error">Invalid tensor data</div>;
   }
 
   const maxSlice = data.shape[axis] - 1;
-  const hasData = data.data && data.data.length > 0;
+  const hasFullData = data.data && data.data.length > 0;
+  const stats = data.stats || data.statistics;
+
+  const requestSlice = useCallback(async (ax: number, idx: number) => {
+    if (hasFullData) return;
+
+    setLoading(true);
+    try {
+      vscode.postMessage({
+        command: 'loadSlice',
+        variableName,
+        axis: ax,
+        index: idx
+      });
+    } catch (err) {
+      console.error('Failed to load slice:', err);
+      setLoading(false);
+    }
+  }, [hasFullData, vscode, variableName]);
 
   useEffect(() => {
-    if (!canvasRef.current || !hasData) return;
+    if (!canvasRef.current) return;
+
+    let currentSliceData: any[][] | null = null;
+
+    if (hasFullData) {
+      const rawSlice = getSlice(data.data, sliceIndex, axis);
+      if (!rawSlice || !rawSlice.length) return;
+      currentSliceData = rawSlice;
+    } else if (sliceData) {
+      currentSliceData = sliceData;
+    } else {
+      if (!hasFullData && !sliceData && !loading) {
+        requestSlice(axis, sliceIndex);
+      }
+      return;
+    }
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx || !currentSliceData) return;
 
-    const sliceData = getSlice(data.data, sliceIndex, axis);
-    if (!sliceData || !sliceData.length) return;
-
-    const rows = sliceData.length;
-    const cols = sliceData[0]?.length || 1;
+    const rows = currentSliceData.length;
+    const cols = currentSliceData[0]?.length || 1;
 
     canvas.width = cols;
     canvas.height = rows;
 
-    const flatData = sliceData.flat();
+    const flatData = currentSliceData.flat();
     const min = Math.min(...flatData);
     const max = Math.max(...flatData);
     const range = max - min || 1;
@@ -43,7 +75,7 @@ const TensorView: React.FC<TensorViewProps> = ({ data, vscode, variableName }) =
     
     for (let i = 0; i < rows; i++) {
       for (let j = 0; j < cols; j++) {
-        const val = sliceData[i][j];
+        const val = currentSliceData[i][j];
         const normalized = (val - min) / range;
         
         const idx = (i * cols + j) * 4;
@@ -60,7 +92,23 @@ const TensorView: React.FC<TensorViewProps> = ({ data, vscode, variableName }) =
     }
 
     ctx.putImageData(imageData, 0, 0);
-  }, [data, sliceIndex, axis, hasData]);
+  }, [data, sliceIndex, axis, hasFullData, sliceData, loading]);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const message = event.data;
+      if (message.command === 'sliceLoaded' && message.variableName === variableName) {
+        if (message.success && message.data?._type === 'slice') {
+          const decoded = decodeBase64Slice(message.data);
+          setSliceData(decoded);
+          setLoading(false);
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [variableName]);
 
   const getSlice = (tensor: any[], index: number, ax: number): any[][] => {
     if (!tensor || !tensor.length) return [[]];
@@ -76,21 +124,88 @@ const TensorView: React.FC<TensorViewProps> = ({ data, vscode, variableName }) =
     }
   };
 
-  if (!hasData) {
+  const decodeBase64Slice = (sliceInfo: any): number[][] => {
+    if (!sliceInfo.encoded_data) return [[]];
+
+    const binaryString = atob(sliceInfo.encoded_data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const float32Array = new Float32Array(bytes.buffer);
+    const shape = sliceInfo.shape;
+    const rows = shape[0];
+    const cols = shape[1];
+
+    const result: number[][] = [];
+    for (let i = 0; i < rows; i++) {
+      const row: number[] = [];
+      for (let j = 0; j < cols; j++) {
+        row.push(float32Array[i * cols + j]);
+      }
+      result.push(row);
+    }
+
+    return result;
+  };
+
+  const handleAxisChange = (newAxis: number) => {
+    setAxis(newAxis);
+    setSliceIndex(0);
+    setSliceData(null);
+    if (!hasFullData) {
+      requestSlice(newAxis, 0);
+    }
+  };
+
+  const handleSliceChange = (newIndex: number) => {
+    setSliceIndex(newIndex);
+    setSliceData(null);
+    if (!hasFullData) {
+      requestSlice(axis, newIndex);
+    }
+  };
+
+  if (!hasFullData && !sliceData) {
     return (
       <div className="tensor-view">
         <div className="no-data">
-          <h3>Large Tensor (Size: {data.size?.toLocaleString()} elements)</h3>
+          <h3>3D Tensor</h3>
           <p>Shape: [{data.shape.join(', ')}]</p>
-          {data.stats && (
+          {stats && (
             <div className="stats">
-              <p>Min: {data.stats.min?.toFixed(4)}</p>
-              <p>Max: {data.stats.max?.toFixed(4)}</p>
-              <p>Mean: {data.stats.mean?.toFixed(4)}</p>
-              <p>Std: {data.stats.std?.toFixed(4)}</p>
+              <p>Min: {stats.min?.toFixed(4)}</p>
+              <p>Max: {stats.max?.toFixed(4)}</p>
+              <p>Mean: {stats.mean?.toFixed(4)}</p>
+              <p>Std: {stats.std?.toFixed(4)}</p>
             </div>
           )}
-          <p className="hint">Use lazy loading to view specific slices</p>
+          <p className="hint">Select a slice below to visualize</p>
+          
+          <div className="slice-controls">
+            <div className="control-group">
+              <label>Axis:</label>
+              <select value={axis} onChange={(e) => handleAxisChange(parseInt(e.target.value))}>
+                <option value={0}>X (0)</option>
+                <option value={1}>Y (1)</option>
+                <option value={2}>Z (2)</option>
+              </select>
+            </div>
+            
+            <div className="control-group">
+              <label>Slice: {sliceIndex}</label>
+              <input
+                type="range"
+                min="0"
+                max={maxSlice}
+                value={sliceIndex}
+                onChange={(e) => handleSliceChange(parseInt(e.target.value))}
+              />
+            </div>
+          </div>
+
+          {loading && <p className="loading-text">Loading slice...</p>}
         </div>
       </div>
     );
@@ -101,10 +216,7 @@ const TensorView: React.FC<TensorViewProps> = ({ data, vscode, variableName }) =
       <div className="slice-controls">
         <div className="control-group">
           <label>Axis:</label>
-          <select value={axis} onChange={(e) => {
-            setAxis(parseInt(e.target.value));
-            setSliceIndex(0);
-          }}>
+          <select value={axis} onChange={(e) => handleAxisChange(parseInt(e.target.value))}>
             <option value={0}>X (0)</option>
             <option value={1}>Y (1)</option>
             <option value={2}>Z (2)</option>
@@ -118,9 +230,11 @@ const TensorView: React.FC<TensorViewProps> = ({ data, vscode, variableName }) =
             min="0"
             max={maxSlice}
             value={sliceIndex}
-            onChange={(e) => setSliceIndex(parseInt(e.target.value))}
+            onChange={(e) => handleSliceChange(parseInt(e.target.value))}
           />
         </div>
+
+        {loading && <span className="loading-indicator">Loading...</span>}
       </div>
 
       <canvas 

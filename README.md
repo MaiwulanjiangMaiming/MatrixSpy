@@ -220,11 +220,36 @@ This project follows semantic versioning:
 
 ## Changelog
 
+### v1.1.0 (2026-04-07)
+
+**🚀 New Features**
+- **Multi-level Tree Navigation**: Added expandable/collapsible tree structure in the sidebar to navigate deeply nested structs and cell arrays
+- **Lazy Loading for 3D Tensors**: Implemented on-demand slice loading for large 3D arrays, dramatically improving performance
+- **v7.3 MAT File Support**: Added full support for MATLAB v7.3 (HDF5) format files
+
+**🐛 Bug Fixes**
+- Fixed 3D tensor visualization showing black canvas
+- Fixed HTML structure corruption due to duplicate `<script>` tags
+- Fixed `acquireVsCodeApi()` not being initialized
+- Fixed parsing errors for struct variables containing mixed-type arrays
+- Fixed `_get_stats` failing on non-numeric arrays
+- Fixed empty data causing frontend crashes
+
+**⚡ Performance Improvements**
+- Reduced initial load time
+- Reduced initial JSON payload size
+- Slice loading optimized
+
+**🔧 Technical Changes**
+- Added `load_slice` method for on-demand slice extraction
+- Added `decodeBase64Slice` for efficient binary data transfer
+- Improved error handling with detailed debug logging
+- Added defensive checks for null/undefined data
+
 ### v1.0.1 (2026-04-05)
 
 - Fixed configuration namespace from 'matViewer' to 'matrixspy'
 - Updated terminology from 'MRI data' to 'image mat data'
-- Translated all Chinese comments to English
 - Improved extension description for better user onboarding
 - Added README.md to extension directory for proper marketplace display
 

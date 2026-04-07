@@ -70,6 +70,34 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             });
             
             console.log('[MatrixSpy] Message sent to webview');
+
+            webviewPanel.webview.onDidReceiveMessage(async (message) => {
+                if (message.command === 'loadSlice') {
+                    console.log('[MatrixSpy] Loading slice:', message.variableName, 'axis:', message.axis, 'index:', message.index);
+                    try {
+                        const sliceResult = await this.pythonBridge.loadSlice(
+                            filePath,
+                            message.variableName,
+                            message.axis,
+                            message.index
+                        );
+                        webviewPanel.webview.postMessage({
+                            command: 'sliceLoaded',
+                            variableName: message.variableName,
+                            success: sliceResult.success,
+                            data: sliceResult.data
+                        });
+                    } catch (error) {
+                        webviewPanel.webview.postMessage({
+                            command: 'sliceLoaded',
+                            variableName: message.variableName,
+                            success: false,
+                            error: String(error)
+                        });
+                    }
+                }
+            });
+            
         } catch (error) {
             console.error('[MatrixSpy] Error:', error);
             webviewPanel.webview.postMessage({
@@ -790,6 +818,78 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
             flex-shrink: 0;
         }
+        .sidebar-tree-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+            border-left: 3px solid transparent;
+            position: relative;
+        }
+        .sidebar-tree-item:hover {
+            background: var(--bg-hover);
+        }
+        .sidebar-tree-item.active {
+            background: var(--bg-primary);
+            border-left-color: var(--accent-blue);
+        }
+        .sidebar-tree-toggle {
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 10px;
+            transition: transform 0.2s ease;
+            flex-shrink: 0;
+        }
+        .sidebar-tree-toggle.expanded {
+            transform: rotate(90deg);
+        }
+        .sidebar-tree-toggle:hover {
+            color: var(--text-primary);
+        }
+        .sidebar-tree-toggle.empty {
+            visibility: hidden;
+        }
+        .sidebar-tree-icon {
+            font-size: 14px;
+            width: 18px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+        .sidebar-tree-name {
+            flex: 1;
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
+        }
+        .sidebar-tree-type {
+            font-size: 10px;
+            color: var(--text-secondary);
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+            flex-shrink: 0;
+            opacity: 0.7;
+        }
+        .sidebar-tree-children {
+            display: none;
+            padding-left: 16px;
+        }
+        .sidebar-tree-children.expanded {
+            display: block;
+        }
+        .sidebar-tree-shape {
+            font-size: 10px;
+            color: var(--text-accent);
+            opacity: 0.6;
+        }
         .main-wrapper {
             flex: 1;
             display: flex;
@@ -883,6 +983,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
     </div>
     
     <script>
+        const vscode = acquireVsCodeApi();
         const mainContent = document.getElementById('mainContent');
         const fileInfo = document.getElementById('fileInfo');
         const settingsBtn = document.getElementById('settingsBtn');
@@ -911,6 +1012,8 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         let currentFileData = null;
         let currentActiveVariable = null;
         let sidebarCollapsed = false;
+        let currentFilePath = null;
+        let currentLoadedSliceData = null;
 
         function detectSystemTheme() {
             return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -966,42 +1069,114 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             return '❓';
         }
 
+        let expandedPaths = {};
+
         function renderSidebar(data) {
+            if (!data || typeof data !== 'object') {
+                sidebarContent.innerHTML = '<div class="sidebar-empty">No variables</div>';
+                return;
+            }
+            
             currentFileData = data;
             const varNames = Object.keys(data).sort();
             
             let html = '';
             varNames.forEach(function(name) {
-                const value = data[name];
-                const type = formatType(value);
-                const icon = getVariableIcon(value);
-                const isActive = currentActiveVariable === name;
-                
-                html += '<div class="sidebar-item' + (isActive ? ' active' : '') + '" data-name="' + name + '">';
-                html += '<span class="sidebar-item-icon">' + icon + '</span>';
-                html += '<span class="sidebar-item-name">' + name + '</span>';
-                html += '<span class="sidebar-item-type">' + type + '</span>';
-                html += '</div>';
+                html += renderTreeItem(name, data[name], name, 0);
             });
             
             sidebarContent.innerHTML = html;
             
-            document.querySelectorAll('.sidebar-item').forEach(function(item) {
-                item.addEventListener('click', function() {
-                    const name = this.getAttribute('data-name');
-                    selectSidebarVariable(name);
+            attachTreeEventListeners();
+        }
+
+        function renderTreeItem(name, value, path, depth) {
+            const type = formatType(value);
+            const icon = getVariableIcon(value);
+            const isActive = currentActiveVariable === path;
+            const isStruct = value && typeof value === 'object' && value._type !== 'ndarray' && value._type !== 'complex';
+            const isExpanded = expandedPaths[path];
+            
+            const hasChildren = isStruct && Object.keys(value).some(k => k !== '_type');
+            const childKeys = hasChildren ? Object.keys(value).filter(k => k !== '_type').sort() : [];
+            
+            let html = '<div class="sidebar-tree-item' + (isActive ? ' active' : '') + '" data-path="' + path + '" data-depth="' + depth + '">';
+            
+            if (hasChildren) {
+                html += '<span class="sidebar-tree-toggle' + (isExpanded ? ' expanded' : '') + '">' + (isExpanded ? '▼' : '▶') + '</span>';
+            } else {
+                html += '<span class="sidebar-tree-toggle empty"></span>';
+            }
+            
+            html += '<span class="sidebar-tree-icon">' + icon + '</span>';
+            html += '<span class="sidebar-tree-name">' + name + '</span>';
+            html += '<span class="sidebar-tree-type">' + type + '</span>';
+            html += '</div>';
+            
+            if (hasChildren && isExpanded) {
+                html += '<div class="sidebar-tree-children expanded">';
+                childKeys.forEach(function(childKey) {
+                    const childPath = path + '.' + childKey;
+                    html += renderTreeItem(childKey, value[childKey], childPath, depth + 1);
+                });
+                html += '</div>';
+            }
+            
+            return html;
+        }
+
+        function attachTreeEventListeners() {
+            document.querySelectorAll('.sidebar-tree-toggle:not(.empty)').forEach(function(toggle) {
+                toggle.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const item = this.closest('.sidebar-tree-item');
+                    const path = item.getAttribute('data-path');
+                    
+                    if (expandedPaths[path]) {
+                        delete expandedPaths[path];
+                    } else {
+                        expandedPaths[path] = true;
+                    }
+                    
+                    renderSidebar(currentFileData);
+                });
+            });
+            
+            document.querySelectorAll('.sidebar-tree-item').forEach(function(item) {
+                item.addEventListener('click', function(e) {
+                    if (e.target.classList.contains('sidebar-tree-toggle')) return;
+                    
+                    const path = this.getAttribute('data-path');
+                    selectTreeItem(path);
                 });
             });
         }
 
-        function selectSidebarVariable(name) {
-            if (!currentFileData || !currentFileData[name]) return;
+        function selectTreeItem(path) {
+            console.log('[DEBUG] selectTreeItem called:', path);
             
-            currentActiveVariable = name;
-            const value = currentFileData[name];
+            const parts = path.split('.');
+            let value = currentFileData;
+            
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i];
+                if (value && typeof value === 'object') {
+                    value = value[part];
+                } else {
+                    console.log('[DEBUG] selectTreeItem: path not found at', part);
+                    return;
+                }
+            }
+            
+            if (value === undefined) {
+                console.log('[DEBUG] selectTreeItem: no value for path', path);
+                return;
+            }
+            
+            currentActiveVariable = path;
             
             fullVariableData = value;
-            currentVariableData = { name: name };
+            currentVariableData = { name: parts[parts.length - 1] };
             currentDisplayMode = 'image';
             currentViewMode = 'magnitude';
             currentAxis = 2;
@@ -1009,12 +1184,15 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             currentShowCount1D = 50;
             currentShowRows2D = 50;
             currentShowCols2D = 20;
+            currentLoadedSliceData = null;
             
-            mainContent.innerHTML = renderPreview(name, value);
+            console.log('[DEBUG] selectTreeItem: rendering preview for', path);
             
-            document.querySelectorAll('.sidebar-item').forEach(function(item) {
+            mainContent.innerHTML = renderPreview(parts[parts.length - 1], value);
+            
+            document.querySelectorAll('.sidebar-tree-item').forEach(function(item) {
                 item.classList.remove('active');
-                if (item.getAttribute('data-name') === name) {
+                if (item.getAttribute('data-path') === path) {
                     item.classList.add('active');
                 }
             });
@@ -1098,8 +1276,16 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         }
 
         function renderImageToCanvas(data) {
+            console.log('[DEBUG] renderImageToCanvas called:', 'data=', !!data, 'shape=', data ? [data.length, data[0] ? data[0].length : 0] : null);
             const canvas = document.getElementById('imageCanvas');
-            if (!canvas || !data) return;
+            if (!canvas) {
+                console.log('[DEBUG] renderImageToCanvas: NO CANVAS found!');
+                return;
+            }
+            if (!data) {
+                console.log('[DEBUG] renderImageToCanvas: NO DATA!');
+                return;
+            }
             
             const height = data.length;
             const width = data[0].length;
@@ -1248,21 +1434,12 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         };
 
         function render3DTable(value) {
-            if (!value.data) return '';
-            
-            const shape = value.shape;
-            let sliceData = null;
-            
-            if (currentAxis === 0) {
-                sliceData = value.data[currentSlice];
-            } else if (currentAxis === 1) {
-                sliceData = value.data.map(row => row[currentSlice]);
-            } else if (currentAxis === 2) {
-                sliceData = value.data.map(row => row.map(col => col[currentSlice]));
+            if (!value.data) {
+                return '<div style="padding: 20px; text-align: center;">' +
+                    '<p style="color: var(--text-secondary);">Large tensor - switch to <b>Image</b> mode for slice visualization, or the data is too large for table display.</p>' +
+                    '<p id="tableLoadingIndicator" style="margin-top:12px; color: var(--text-accent); font-size:12px;"></p>' +
+                    '</div>';
             }
-            
-            const rowsToShow = Math.min(50, sliceData.length);
-            const colsToShow = Math.min(20, sliceData[0].length);
             
             let html = '<table class="data-table">';
             html += '<tr><th></th>';
@@ -1402,8 +1579,10 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         }
 
         function render3DArray(name, value) {
+            console.log('[DEBUG] render3DArray called:', name, 'shape:', value.shape);
             const stats = value.statistics || value.stats || {};
             const numSlices = value.shape[currentAxis];
+            const hasData = value.data && value.data.length > 0;
             
             let html = '<div class="variable-preview">' +
                 '<div class="preview-header">' +
@@ -1427,6 +1606,10 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             }
             
             html += statsHtml;
+            
+            if (!hasData) {
+                html += '<p style="margin: 16px 0; color: var(--text-secondary); font-size: 13px;">Large tensor - using lazy loading. Select a slice below to visualize.</p>';
+            }
             
             html += '<div class="view-tabs">' +
                 '<button class="view-tab ' + (currentDisplayMode === 'table' ? 'active' : '') + '" onclick="setDisplayMode(' + "'table'" + ')">📊 Table</button>' +
@@ -1455,14 +1638,19 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
                 html += '<label>Slice:</label>' +
                     '<input type="range" id="sliceSlider" min="0" max="' + (numSlices - 1) + '" value="' + currentSlice + '" oninput="updateSlice(this.value);">' +
                     '<span class="tensor-value" id="sliceValue">' + currentSlice + '</span>' +
+                    '<span id="sliceLoadingIndicator" style="display:none; margin-left:12px; color: var(--text-accent); font-size:12px;"></span>' +
                     '</div>';
                 
                 html += '<div class="image-viewer">' +
                     '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
                     '</div>';
                 
-                const sliceData = get3DSlice(value, currentAxis, currentSlice, currentViewMode);
-                setTimeout(() => renderImageToCanvas(sliceData), 10);
+                if (hasData) {
+                    const sliceData = get3DSlice(value, currentAxis, currentSlice, currentViewMode);
+                    setTimeout(() => renderImageToCanvas(sliceData), 10);
+                } else {
+                    setTimeout(() => requestSliceFromBackend(currentAxis, currentSlice), 100);
+                }
             } else {
                 html += '<div class="tensor-controls">' +
                     '<label>View Axis:</label>' +
@@ -1598,15 +1786,32 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         window.setAxis = function(axis) {
             currentAxis = parseInt(axis);
             currentSlice = 0;
+            currentLoadedSliceData = null;
+            
             if (fullVariableData && currentVariableData) {
+                if (!fullVariableData.data && fullVariableData.shape.length >= 3) {
+                    requestSliceFromBackend(currentAxis, currentSlice);
+                }
                 mainContent.innerHTML = renderPreview(currentVariableData.name, fullVariableData);
+                
+                if (fullVariableData.data && currentDisplayMode === 'image') {
+                    const sliceData = get3DSlice(fullVariableData, currentAxis, currentSlice, currentViewMode);
+                    setTimeout(() => renderImageToCanvas(sliceData), 10);
+                }
             }
         };
 
         window.updateSlice = function(value) {
             currentSlice = parseInt(value);
+            currentLoadedSliceData = null;
             document.getElementById('sliceValue').textContent = value;
+            
             if (fullVariableData && currentVariableData) {
+                if (!fullVariableData.data && fullVariableData.shape.length >= 3) {
+                    requestSliceFromBackend(currentAxis, currentSlice);
+                    return;
+                }
+                
                 if (currentDisplayMode === 'image') {
                     const sliceData = get3DSlice(fullVariableData, currentAxis, currentSlice, currentViewMode);
                     renderImageToCanvas(sliceData);
@@ -1622,7 +1827,15 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
 
             if (message.command === 'fileLoaded') {
                 const matData = message.data;
+                console.log('[DEBUG] fileLoaded received:', 'path=', matData.file_path, 'vars=', Object.keys(matData.data || {}));
+                
+                if (!matData.success || !matData.data) {
+                    mainContent.innerHTML = '<div class="error">Failed to load file: ' + (matData.error || 'No data') + '</div>';
+                    return;
+                }
+                
                 currentVariableData = matData.data;
+                currentFilePath = matData.file_path;
                 fileInfo.textContent = (matData.version || 'v?') + ' · ' + (matData.file_path || '');
                 
                 currentActiveVariable = null;
@@ -1640,6 +1853,21 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
                 html += '</div>';
 
                 mainContent.innerHTML = html;
+            } else if (message.command === 'sliceLoaded') {
+                console.log('[DEBUG] sliceLoaded received:', 'success=', message.success, 'varName=', message.variableName);
+                if (message.success && message.data && message.data._type === 'slice') {
+                    console.log('[DEBUG] sliceLoaded: decoding base64, shape:', message.data.shape);
+                    currentLoadedSliceData = decodeBase64Slice(message.data);
+                    console.log('[DEBUG] sliceLoaded: decoded, rows=', currentLoadedSliceData ? currentLoadedSliceData.length : null);
+                    renderImageToCanvas(currentLoadedSliceData);
+                    
+                    const loadingEl = document.getElementById('sliceLoadingIndicator');
+                    if (loadingEl) loadingEl.style.display = 'none';
+                } else {
+                    console.error('[Webview] Slice load failed:', message.error);
+                    const loadingEl = document.getElementById('sliceLoadingIndicator');
+                    if (loadingEl) loadingEl.textContent = 'Error loading slice: ' + (message.error || 'Unknown error');
+                }
             } else if (message.command === 'showVariable') {
                 const name = message.variableName;
                 const value = message.variableValue;
@@ -1649,6 +1877,55 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             } else if (message.command === 'error') {
                 mainContent.innerHTML = '<div class="error">Error: ' + message.error + '</div>';
             }
+        }
+
+        function decodeBase64Slice(sliceInfo) {
+            if (!sliceInfo.encoded_data) return null;
+
+            const binaryString = atob(sliceInfo.encoded_data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            const float32Array = new Float32Array(bytes.buffer);
+            const shape = sliceInfo.shape;
+            const rows = shape[0];
+            const cols = shape[1];
+
+            const result = [];
+            for (let i = 0; i < rows; i++) {
+                const row = [];
+                for (let j = 0; j < cols; j++) {
+                    row.push(float32Array[i * cols + j]);
+                }
+                result.push(row);
+            }
+
+            return result;
+        }
+
+        function requestSliceFromBackend(ax, idx) {
+            console.log('[DEBUG] requestSliceFromBackend called:', 'ax=', ax, 'idx=', idx, 'filePath=', !!currentFilePath, 'varName=', currentActiveVariable);
+            if (!currentFilePath || !currentActiveVariable) {
+                console.log('[DEBUG] requestSliceFromBackend: ABORTED - missing filePath or varName');
+                return;
+            }
+            
+            currentLoadedSliceData = null;
+            
+            const loadingEl = document.getElementById('sliceLoadingIndicator');
+            if (loadingEl) {
+                loadingEl.style.display = 'inline';
+                loadingEl.textContent = 'Loading slice...';
+            }
+            
+            vscode.postMessage({
+                command: 'loadSlice',
+                variableName: currentActiveVariable,
+                axis: ax,
+                index: idx
+            });
         }
 
         settingsBtn.addEventListener('click', openSettings);

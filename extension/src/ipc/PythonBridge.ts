@@ -77,6 +77,45 @@ export class PythonBridge {
         });
     }
 
+    async loadSlice(filePath: string, variableName: string, axis: number, index: number): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const fullArgs = [this.scriptPath, filePath, '--slice', variableName, String(axis), String(index)];
+
+            console.log(`${LOG_PREFIX} Loading slice:`, variableName, 'axis:', axis, 'index:', index);
+
+            const proc = spawn(this.pythonPath, fullArgs);
+
+            let stdout = '';
+            let stderr = '';
+
+            proc.stdout?.on('data', (data) => {
+                stdout += data.toString();
+            });
+
+            proc.stderr?.on('data', (data) => {
+                stderr += data.toString();
+            });
+
+            proc.on('close', (code) => {
+                if (code !== 0) {
+                    reject(new Error(`Python process exited with code ${code}: ${stderr}`));
+                    return;
+                }
+
+                try {
+                    const result = JSON.parse(stdout);
+                    resolve(result);
+                } catch (error) {
+                    reject(new Error(`Failed to parse slice output: ${error}`));
+                }
+            });
+
+            proc.on('error', (error) => {
+                reject(new Error(`Failed to start Python process: ${error.message}`));
+            });
+        });
+    }
+
     dispose(): void {
         if (this.process) {
             this.process.kill();

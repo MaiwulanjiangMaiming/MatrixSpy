@@ -33,4 +33,3 @@ wheels/
 Thumbs.db
 *.log
 test_output.json
-extension/python/
