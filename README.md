@@ -38,65 +38,40 @@ A powerful VS Code extension for exploring, visualizing, and exporting MATLAB .m
   - CSV export
   - JSON export
   - NumPy format
+- ✅ **Welcome page with dependency check**:
+  - Auto-detect Python installation
+  - Guide users to install missing packages
 
 ## Installation
 
+### From VS Code Marketplace
+
+Search for "MatrixSpy" in the Extensions view (Cmd+Shift+X)
+
+### From VSIX File
+
+1. Download the `.vsix` file from [Releases](https://github.com/MaiwulanjiangMaiming/MatrixSpy/releases)
+2. Open VS Code
+3. Go to Extensions (Cmd+Shift+X)
+4. Click "..." menu → "Install from VSIX"
+5. Select the downloaded `.vsix` file
+
 ### Prerequisites
 
-1. **Python 3.8+** with the following packages:
-   ```bash
-   pip install scipy numpy h5py mat73
-   ```
-2. **Node.js 16+** and npm
+**Python 3.8+** with the following packages:
+```bash
+pip install scipy numpy h5py mat73
+```
 
-### Build from Source
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/MaiwulanjiangMaiming/MatrixSpy.git
-   cd MatrixSpy
-   ```
-2. Install Python dependencies:
-   ```bash
-   cd python
-   pip install -r requirements.txt
-   ```
-3. Install Extension dependencies:
-   ```bash
-   cd ../extension
-   npm install
-   ```
-4. Install Webview dependencies:
-   ```bash
-   cd ../webview
-   npm install
-   ```
-5. Build the webview:
-   ```bash
-   npm run build
-   ```
-6. Compile the extension:
-   ```bash
-   cd ../extension
-   npm run compile
-   ```
-7. Package the extension:
-   ```bash
-   npm run package
-   ```
-8. Install in VSCode:
-   - Open VSCode
-   - Go to Extensions (Cmd+Shift+X)
-   - Click "..." menu → "Install from VSIX"
-   - Select the generated `.vsix` file
+The extension will automatically check dependencies on first launch and guide you through installation if needed.
 
 ## Usage
 
 ### Opening MAT Files
 
-1. **Method 1**: Right-click on a `.mat` file in Explorer → "Open MAT File"
-2. **Method 2**: Command Palette (Cmd+Shift+P) → "MatrixSpy: Open MAT File"
-3. **Method 3**: Double-click on a `.mat` file
+1. **Method 1**: Double-click on a `.mat` file in Explorer
+2. **Method 2**: Right-click on a `.mat` file → "Open MAT File"
+3. **Method 3**: Command Palette (Cmd+Shift+P) → "MatrixSpy: Open MAT File"
 
 ### Navigation
 
@@ -127,7 +102,7 @@ For image mat data with k-space:
 
 ## Configuration
 
-Configure in VSCode settings:
+Configure in VS Code settings:
 
 ```json
 {
@@ -137,52 +112,25 @@ Configure in VSCode settings:
 }
 ```
 
-## Test Files
-
-Generate test files:
-
-```bash
-cd test-files/generators
-python generate_test_mats.py
-python generate_mri_data.py
-```
-
-This creates:
-
-- `test-files/v5/` - v5 format files
-- `test-files/v7/` - v7 format files
-- `test-files/v7.3/` - v7.3 HDF5 format files
-- MRI test data
-
 ## Architecture
 
 ```
 MatrixSpy/
-├── extension/          # VSCode Extension (TypeScript)
-│   ├── src/
-│   │   ├── extension.ts
-│   │   ├── providers/  # Custom Editor, Tree View
-│   │   ├── ipc/        # Python Bridge
-│   │   └── commands/   # User commands
-│   └── webview-dist/   # Compiled webview
-│
-├── python/             # Python Backend
-│   ├── mat_parser.py   # Main parser
-│   ├── parsers/        # v4-v7.3 parsers
-│   ├── serializers/    # JSON serialization
-│   └── utils/          # Lazy loader, MRI tools
-│
-├── webview/            # React Webview UI
-│   ├── src/
-│   │   ├── components/ # UI components
-│   │   ├── hooks/      # React hooks
-│   │   └── types/      # TypeScript types
-│   └── dist/           # Compiled bundle
-│
-└── test-files/         # Test MAT files
-    ├── v5/
-    ├── v7/
-    └── v7.3/
+├── extension/              # VS Code Extension
+│   ├── src/                # TypeScript source
+│   │   ├── extension.ts    # Main entry point
+│   │   ├── providers/      # Custom Editor, Tree View
+│   │   ├── ipc/            # Python Bridge
+│   │   ├── commands/       # User commands
+│   │   └── utils/          # Utilities
+│   ├── python/             # Python Backend
+│   │   ├── mat_parser.py   # Main parser
+│   │   ├── parsers/        # v4-v7.3 parsers
+│   │   └── utils/          # Lazy loader, MRI tools
+│   ├── webview-dist/       # Compiled webview (React)
+│   ├── media/              # Walkthrough media
+│   └── resources/          # Icons
+└── README.md
 ```
 
 ## Supported Data Types
@@ -198,7 +146,23 @@ MatrixSpy/
 | cell        | list          | List view          |
 | sparse      | scipy.sparse  | Sparse matrix view |
 
-### Large files slow
+## Troubleshooting
+
+### Python not found
+
+- Make sure Python 3.8+ is installed and in your PATH
+- Configure `matrixspy.pythonPath` in VS Code settings
+
+### Missing packages
+
+Run the installation command:
+```bash
+pip install scipy numpy h5py mat73
+```
+
+Or use the command: `MatrixSpy: Install Python Dependencies`
+
+### Large files are slow
 
 - Files >1GB use lazy loading
 - Adjust `matrixspy.maxDataSize` for threshold
@@ -211,14 +175,19 @@ Contributions welcome! Please read our contributing guidelines.
 
 MIT License
 
-## Versioning
-
-This project follows semantic versioning:
-- **z** (patch): Bug fixes
-- **y** (minor): New features
-- **x** (major): Major version updates (breaking changes)
-
 ## Changelog
+
+### v1.1.1 (2026-04-18)
+
+**🚀 New Features**
+- **Welcome Page**: Auto-opens on first launch to guide users through setup
+- **Dependency Check**: Automatically detects Python and required packages
+- **New Commands**: `Show Welcome Page`, `Reset Welcome State`
+
+**🧹 Cleanup**
+- Removed redundant files (duplicate python/, test-files/, webview source)
+- Simplified project structure
+- Reduced package size
 
 ### v1.1.0 (2026-04-07)
 
@@ -240,29 +209,15 @@ This project follows semantic versioning:
 - Reduced initial JSON payload size
 - Slice loading optimized
 
-**🔧 Technical Changes**
-- Added `load_slice` method for on-demand slice extraction
-- Added `decodeBase64Slice` for efficient binary data transfer
-- Improved error handling with detailed debug logging
-- Added defensive checks for null/undefined data
-
 ### v1.0.1 (2026-04-05)
 
 - Fixed configuration namespace from 'matViewer' to 'matrixspy'
 - Updated terminology from 'MRI data' to 'image mat data'
 - Improved extension description for better user onboarding
-- Added README.md to extension directory for proper marketplace display
 
 ### v1.0.0 (2026-04-05)
 
 - Initial release
-- Support for all MAT file versions (v4, v5, v6, v7, v7.3)
-- Interactive visualization with Plotly.js
-- Tree view for variable navigation
-- Multiple data types support: scalars, vectors, matrices, tensors, complex numbers, structs, cell arrays, sparse matrices
-- Image mat data-specific features: k-space visualization, FFT transform, magnitude/phase display, multi-slice viewer
-- Performance optimization: lazy loading, WebGL acceleration, downsampling
-- Export capabilities: CSV, JSON, NumPy format
 
 ## Contact
 
