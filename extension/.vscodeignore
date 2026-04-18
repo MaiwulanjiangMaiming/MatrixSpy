@@ -3,10 +3,8 @@
 src/**
 .gitignore
 tsconfig.json
-.eslintrc.json
+.eslintrc.js
 .vscodeignore
 node_modules/**
-test-files/**
-webview/**
-test/**
 *.map
+*.vsix

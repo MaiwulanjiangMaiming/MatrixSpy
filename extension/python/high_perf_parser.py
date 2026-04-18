@@ -20,7 +20,7 @@ import h5py
 class HighPerfMatParser:
     """High-performance MAT file parser with lazy loading support"""
     
-    def __init__(self, max_preview_size=500000):
+    def __init__(self, max_preview_size=1000000):
         self.max_preview_size = max_preview_size
     
     def parse_file(self, file_path: str) -> Dict[str, Any]:
@@ -220,9 +220,20 @@ class HighPerfMatParser:
                 'variable_name': variable_name
             }
     
-    def _process_value(self, value: Any, is_root: bool = False, 
+    def _process_value(self, value: Any, is_root: bool = False,
                       force_load: bool = False) -> Any:
         """Process value (smart loading)"""
+        # Limit deep recursion for large structures
+        if isinstance(value, (dict, list, tuple)) and not force_load:
+            size = self._estimate_size(value)
+            if size > 10 * 1024 * 1024:  # 10MB
+                return {
+                    '_type': 'large_data',
+                    'type': type(value).__name__,
+                    'size': size,
+                    'message': 'Large data structure - use lazy loading'
+                }
+
         if isinstance(value, np.ndarray):
             return self._process_array(value, force_load)
         elif isinstance(value, (np.integer, np.int64, np.int32)):
@@ -240,19 +251,19 @@ class HighPerfMatParser:
         elif isinstance(value, dict):
             return {
                 '_type': 'struct',
-                **{k: self._process_value(v, is_root=False, force_load=force_load) 
+                **{k: self._process_value(v, is_root=False, force_load=force_load)
                    for k, v in value.items()}
             }
         elif isinstance(value, (list, tuple)):
-            return [self._process_value(v, is_root=False, force_load=force_load) 
+            return [self._process_value(v, is_root=False, force_load=force_load)
                    for v in value]
         elif hasattr(value, '_fieldnames'):
             # MATLAB struct
             result = {'_type': 'struct'}
             for field in value._fieldnames:
                 result[field] = self._process_value(
-                    getattr(value, field), 
-                    is_root=False, 
+                    getattr(value, field),
+                    is_root=False,
                     force_load=force_load
                 )
             return result
@@ -297,6 +308,15 @@ class HighPerfMatParser:
     
     def _convert_complex_array(self, arr: np.ndarray) -> Any:
         """Convert complex array (preserve original dimensions)"""
+        # Limit complex array conversion to prevent recursion depth issues
+        if arr.size > 1000000:  # 1M elements
+            return {
+                '_type': 'complex',
+                'shape': arr.shape,
+                'dtype': str(arr.dtype),
+                'message': 'Large complex array - display limited to statistics'
+            }
+
         # Recursive conversion to preserve dimensions
         def convert_recursive(arr_slice):
             if arr_slice.ndim == 0:
@@ -316,19 +336,29 @@ class HighPerfMatParser:
                 ]
             else:
                 return [convert_recursive(sub_arr) for sub_arr in arr_slice]
-        
+
         return convert_recursive(arr)
     
-    def _get_preview(self, arr: np.ndarray, max_items: int = 100) -> Dict[str, Any]:
-        """Get data preview"""
+    def _get_preview(self, arr: np.ndarray, max_items: int = 1000) -> Dict[str, Any]:
+        """Get data preview with better performance for large arrays"""
+        if arr.size > 1000000:  # 1M elements
+            return {
+                '_type': 'large_array',
+                'shape': arr.shape,
+                'dtype': str(arr.dtype),
+                'size': arr.size,
+                'message': 'Large array - preview limited to statistics'
+            }
+
         if arr.ndim == 1:
-            # 1D: take first and last 50 elements
+            # 1D: take first and last elements
             if arr.size > max_items:
-                half = max_items // 2
+                quarter = max_items // 4
                 return {
-                    'head': self._convert_array(arr[:half]),
-                    'tail': self._convert_array(arr[-half:]),
-                    'truncated': True
+                    'head': self._convert_array(arr[:quarter]),
+                    'tail': self._convert_array(arr[-quarter:]),
+                    'truncated': True,
+                    'total': arr.size
                 }
             else:
                 return {
@@ -336,14 +366,20 @@ class HighPerfMatParser:
                     'truncated': False
                 }
         elif arr.ndim == 2:
-            # 2D: take center region
+            # 2D: take center region for large matrices
             h, w = arr.shape
-            if h > 10 or w > 10:
+            if h > 50 or w > 50:
+                # Sample from center for better performance
                 ch, cw = h // 2, w // 2
-                preview = arr[max(0, ch-5):ch+5, max(0, cw-5):cw+5]
+                sample_h = min(20, h)
+                sample_w = min(20, w)
+                start_h = max(0, ch - sample_h // 2)
+                start_w = max(0, cw - sample_w // 2)
+                preview = arr[start_h:start_h + sample_h, start_w:start_w + sample_w]
                 return {
                     'center': self._convert_array(preview),
-                    'truncated': True
+                    'truncated': True,
+                    'shape': arr.shape
                 }
             else:
                 return {

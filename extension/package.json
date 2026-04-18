@@ -2,7 +2,7 @@
   "name": "matrixspy",
   "displayName": "MatrixSpy",
   "description": "A powerful VS Code extension for exploring, visualizing, and exporting MATLAB .mat files. Supports all versions (v4-v7.3), image mat data, interactive plotting, and export to CSV/JSON/NumPy. Right-click any .mat file to open!",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "maiwulanjiangmaiming",
   "repository": {
     "type": "git",
@@ -32,10 +32,7 @@
     "Data Science",
     "Visualization"
   ],
-  "activationEvents": [
-    "onCustomEditor:matrixspy.matFile",
-    "onCommand:matrixspy.openFile"
-  ],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -59,6 +56,26 @@
         "title": "Refresh Variables",
         "category": "MatrixSpy",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "matrixspy.installDeps",
+        "title": "Install Python Dependencies",
+        "category": "MatrixSpy"
+      },
+      {
+        "command": "matrixspy.openSample",
+        "title": "Open Sample MAT File",
+        "category": "MatrixSpy"
+      },
+      {
+        "command": "matrixspy.showWelcome",
+        "title": "Show Welcome Page",
+        "category": "MatrixSpy"
+      },
+      {
+        "command": "matrixspy.resetWelcome",
+        "title": "Reset Welcome State",
+        "category": "MatrixSpy"
       }
     ],
     "viewsContainers": {
@@ -124,26 +141,74 @@
           "description": "Enable image mat data-specific features"
         }
       }
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "matrixspy.welcome",
+        "title": "Get Started with MatrixSpy",
+        "description": "Learn how to use MatrixSpy to explore and visualize MATLAB .mat files",
+        "steps": [
+          {
+            "id": "install",
+            "title": "Install Python Dependencies",
+            "description": "MatrixSpy requires Python 3.8+ with scipy, numpy, h5py, and mat73 packages.\n[Install Dependencies](command:matrixspy.installDeps)",
+            "media": {
+              "markdown": "media/install.md"
+            }
+          },
+          {
+            "id": "open",
+            "title": "Open a MAT File",
+            "description": "There are three ways to open a .mat file:\n\n1. **Double-click** any `.mat` file in the Explorer\n2. **Right-click** a `.mat` file → \"Open MAT File\"\n3. Use Command Palette: `Cmd+Shift+P` → \"MatrixSpy: Open MAT File\"\n\n[Open Sample File](command:matrixspy.openSample)",
+            "media": {
+              "markdown": "media/open.md"
+            }
+          },
+          {
+            "id": "navigate",
+            "title": "Navigate Variables",
+            "description": "Use the **sidebar** to browse all variables in your MAT file.\n\n- Click on a variable to view its data\n- Expand structs to see nested fields\n- Use the tree navigation for multi-level structures",
+            "media": {
+              "markdown": "media/navigate.md"
+            }
+          },
+          {
+            "id": "visualize",
+            "title": "Visualize Data",
+            "description": "MatrixSpy automatically visualizes your data:\n\n- **1D arrays**: Line plots\n- **2D matrices**: Heatmaps or tables\n- **3D tensors**: Interactive slice viewer\n- **Complex numbers**: Magnitude/Phase display\n\nSwitch between **Image** and **Table** views using the tabs.",
+            "media": {
+              "markdown": "media/visualize.md"
+            }
+          },
+          {
+            "id": "export",
+            "title": "Export Data",
+            "description": "Export your data in multiple formats:\n\n- **CSV**: Right-click variable → \"Export to CSV\"\n- **JSON**: Right-click variable → \"Export to JSON\"\n- **NumPy**: Use Command Palette → \"MatrixSpy: Export to NumPy\"",
+            "media": {
+              "markdown": "media/export.md"
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js",
     "package": "vsce package"
   },
   "devDependencies": {
-    "@types/node": "^20.10.0",
-    "@types/vscode": "^1.85.0",
-    "@typescript-eslint/eslint-plugin": "^6.13.0",
-    "@typescript-eslint/parser": "^6.13.0",
-    "eslint": "^8.54.0",
-    "typescript": "^5.3.2",
-    "@vscode/test-electron": "^2.3.8",
+    "@types/node": "20.10.0",
+    "@types/vscode": "1.85.0",
+    "@typescript-eslint/eslint-plugin": "6.13.0",
+    "@typescript-eslint/parser": "6.13.0",
+    "eslint": "8.54.0",
+    "typescript": "5.3.2",
     "@vscode/vsce": "^2.22.0"
   },
-  "dependencies": {}
+  "dependencies": {
+    "await-lock": "^3.0.0"
+  }
 }

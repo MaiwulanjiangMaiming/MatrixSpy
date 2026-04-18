@@ -7,12 +7,14 @@ Author: Maiwulanjiang Maiming
 import * as vscode from 'vscode';
 import { MatFileEditorProvider } from './providers/CustomEditorProvider';
 import { MatVariableTreeDataProvider, setCurrentData, setCurrentWebviewPanel, showVariable } from './providers/MatVariableTreeDataProvider';
-import { PythonBridge } from './ipc/PythonBridge';
+import { PythonBridge, DependencyCheckResult } from './ipc/PythonBridge';
 import { openFileCommand } from './commands/openFile';
 import { exportCSVCommand, exportJSONCommand } from './commands/exportData';
+import { installDepsCommand, openSampleCommand } from './commands/walkthroughCommands';
 import { MatFileData, ParserResult } from './types';
 
 const LOG_PREFIX = '[MatrixSpy]';
+const WELCOME_SHOWN_KEY = 'matrixspy.welcomeShown';
 
 let currentTreeDataProvider: MatVariableTreeDataProvider | null = null;
 let currentEditorProvider: MatFileEditorProvider | null = null;
@@ -21,7 +23,7 @@ let currentActiveFile: string | null = null;
 let currentPythonBridge: PythonBridge | null = null;
 let currentWebviewPanel: vscode.WebviewPanel | null = null;
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
     console.log(`${LOG_PREFIX} Extension is now active!`);
 
     currentPythonBridge = new PythonBridge(context);
@@ -32,6 +34,54 @@ export function activate(context: vscode.ExtensionContext): void {
     registerTreeDataProvider(context);
     registerCommands(context);
     registerEventHandlers(context);
+
+    await checkAndShowWelcome(context);
+}
+
+async function checkAndShowWelcome(context: vscode.ExtensionContext): Promise<void> {
+    const config = vscode.workspace.getConfiguration('matrixspy');
+    const pythonPath = config.get<string>('pythonPath', 'python3');
+
+    const depResult = await PythonBridge.checkDependencies(pythonPath);
+    console.log(`${LOG_PREFIX} Dependency check result:`, depResult);
+
+    const welcomeShown = context.globalState.get<boolean>(WELCOME_SHOWN_KEY, false);
+
+    if (!depResult.allDependenciesMet || !welcomeShown) {
+        await showWelcomePage(context, depResult);
+    }
+}
+
+async function showWelcomePage(context: vscode.ExtensionContext, depResult: DependencyCheckResult): Promise<void> {
+    await vscode.commands.executeCommand(
+        'workbench.action.openWalkthrough',
+        { category: 'maiwulanjiangmaiming.matrixspy#matrixspy.welcome' }
+    );
+
+    if (!depResult.pythonFound) {
+        vscode.window.showWarningMessage(
+            'MatrixSpy: Python not found. Please install Python 3.8+ and configure the pythonPath setting.',
+            'Configure Settings',
+            'Dismiss'
+        ).then(selection => {
+            if (selection === 'Configure Settings') {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'matrixspy.pythonPath');
+            }
+        });
+    } else if (!depResult.allDependenciesMet) {
+        const missing = depResult.missingPackages.join(', ');
+        const action = await vscode.window.showWarningMessage(
+            `MatrixSpy: Missing Python packages: ${missing}. Install now?`,
+            'Install Dependencies',
+            'Dismiss'
+        );
+
+        if (action === 'Install Dependencies') {
+            await installDepsCommand();
+        }
+    } else {
+        await context.globalState.update(WELCOME_SHOWN_KEY, true);
+    }
 }
 
 function registerEditorProvider(context: vscode.ExtensionContext): void {
@@ -63,6 +113,18 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }),
         vscode.commands.registerCommand('matrixspy.showVariable', (name: string, value: any) => {
             showVariable(name, value);
+        }),
+        vscode.commands.registerCommand('matrixspy.installDeps', () => installDepsCommand()),
+        vscode.commands.registerCommand('matrixspy.openSample', () => openSampleCommand(context)),
+        vscode.commands.registerCommand('matrixspy.showWelcome', async () => {
+            const config = vscode.workspace.getConfiguration('matrixspy');
+            const pythonPath = config.get<string>('pythonPath', 'python3');
+            const depResult = await PythonBridge.checkDependencies(pythonPath);
+            await showWelcomePage(context, depResult);
+        }),
+        vscode.commands.registerCommand('matrixspy.resetWelcome', async () => {
+            await context.globalState.update(WELCOME_SHOWN_KEY, false);
+            vscode.window.showInformationMessage('MatrixSpy: Welcome page state reset. Restart VS Code to see the welcome page.');
         })
     );
 }
@@ -97,7 +159,9 @@ async function handleFileSwitch(filePath: string): Promise<void> {
 }
 
 async function loadAndCacheFile(filePath: string): Promise<void> {
-    if (!currentPythonBridge) return;
+    if (!currentPythonBridge) {
+        return;
+    }
     
     try {
         console.log(`${LOG_PREFIX} Loading file for cache:`, filePath);

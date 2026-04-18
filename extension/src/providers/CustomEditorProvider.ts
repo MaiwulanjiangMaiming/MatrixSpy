@@ -7,6 +7,7 @@ Author: Maiwulanjiang Maiming
 import * as vscode from 'vscode';
 import { PythonBridge } from '../ipc/PythonBridge';
 import { updateTreeData, updateCurrentWebviewPanel, cacheFileData } from '../extension';
+import { createError, ERROR_CODES } from '../utils/errorHandler';
 
 export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvider {
     constructor(
@@ -37,16 +38,30 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         webviewPanel.webview.options = {
             enableScripts: true,
             localResourceRoots: [
-                vscode.Uri.joinPath(this.context.extensionUri, 'webview-dist')
+                vscode.Uri.joinPath(this.context.extensionUri, 'webview-dist'),
+                this.context.extensionUri
             ]
         };
 
         webviewPanel.webview.html = this.getSimpleHtml();
         console.log('[MatrixSpy] HTML set');
 
+        // Show initial loading state
+        webviewPanel.webview.postMessage({
+            command: 'loadingStart',
+            message: 'Loading file...'
+        });
+
+        // Use setTimeout for better timing
         setTimeout(async () => {
-            await this.handleLoadFile(document.uri.fsPath, webviewPanel);
-        }, 100);
+            try {
+                await this.handleLoadFile(document.uri.fsPath, webviewPanel);
+            } catch (error) {
+                webviewPanel.webview.postMessage({
+                    command: 'loadingEnd'
+                });
+            }
+        }, 0);
 
         webviewPanel.onDidDispose(() => {
             updateCurrentWebviewPanel(null);
@@ -54,60 +69,87 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
     }
 
     private async handleLoadFile(filePath: string, webviewPanel: vscode.WebviewPanel) {
-        try {
-            console.log('[MatrixSpy] Loading file:', filePath);
-            const result = await this.pythonBridge.parseFile(filePath);
-            console.log('[MatrixSpy] Parsed, sending to webview');
-            
-            if (result.success && result.data) {
-                cacheFileData(filePath, result.data);
-                updateTreeData(result.data);
-            }
-            
-            webviewPanel.webview.postMessage({
-                command: 'fileLoaded',
-                data: result
-            });
-            
-            console.log('[MatrixSpy] Message sent to webview');
+        const retryLoad = async () => {
+            try {
+                console.log('[MatrixSpy] Loading file:', filePath);
+                const result = await this.pythonBridge.parseFile(filePath);
+                console.log('[MatrixSpy] Parsed, sending to webview');
 
-            webviewPanel.webview.onDidReceiveMessage(async (message) => {
-                if (message.command === 'loadSlice') {
-                    console.log('[MatrixSpy] Loading slice:', message.variableName, 'axis:', message.axis, 'index:', message.index);
-                    try {
-                        const sliceResult = await this.pythonBridge.loadSlice(
-                            filePath,
-                            message.variableName,
-                            message.axis,
-                            message.index
-                        );
-                        webviewPanel.webview.postMessage({
-                            command: 'sliceLoaded',
-                            variableName: message.variableName,
-                            success: sliceResult.success,
-                            data: sliceResult.data
-                        });
-                    } catch (error) {
-                        webviewPanel.webview.postMessage({
-                            command: 'sliceLoaded',
-                            variableName: message.variableName,
-                            success: false,
-                            error: String(error)
-                        });
-                    }
+                if (result.success && result.data) {
+                    cacheFileData(filePath, result.data);
+                    updateTreeData(result.data);
                 }
-            });
-            
-        } catch (error) {
-            console.error('[MatrixSpy] Error:', error);
-            webviewPanel.webview.postMessage({
-                command: 'error',
-                error: error instanceof Error ? error.message : String(error)
-            });
-        }
+
+                webviewPanel.webview.postMessage({
+                    command: 'fileLoaded',
+                    data: result
+                });
+
+                console.log('[MatrixSpy] Message sent to webview');
+
+                webviewPanel.webview.onDidReceiveMessage(async (message) => {
+                    console.log('[MatrixSpy] Received message:', message.command);
+
+                    if (message.command === 'loadSlice') {
+                        console.log('[MatrixSpy] Loading slice:', message.variableName, 'axis:', message.axis, 'index:', message.index);
+                        try {
+                            const sliceResult = await this.pythonBridge.loadSlice(
+                                filePath,
+                                message.variableName,
+                                message.axis,
+                                message.index
+                            );
+
+                            webviewPanel.webview.postMessage({
+                                command: 'sliceLoaded',
+                                variableName: message.variableName,
+                                success: sliceResult.success,
+                                data: sliceResult.success ? sliceResult.data : null,
+                                error: sliceResult.success ? null : sliceResult.error
+                            });
+                        } catch (error) {
+                            console.error('[MatrixSpy] Slice load error:', error);
+                            webviewPanel.webview.postMessage({
+                                command: 'sliceLoaded',
+                                variableName: message.variableName,
+                                success: false,
+                                data: null,
+                                error: error instanceof Error ? error.message : String(error)
+                            });
+                        }
+                    } else {
+                        console.warn('[MatrixSpy] Unknown command:', message.command);
+                    }
+                });
+
+            } catch (error) {
+                console.error('[MatrixSpy] Error:', error);
+
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                webviewPanel.webview.postMessage({
+                    command: 'error',
+                    error: errorMsg,
+                    retryable: error instanceof Error && error.message.includes('timeout')
+                });
+
+                // Offer retry for timeout errors
+                if (errorMsg.includes('timeout')) {
+                    setTimeout(() => {
+                        retryLoad();
+                    }, 2000);
+                }
+            }
+        };
+
+        // Start loading with retry capability
+        retryLoad();
     }
 
     private getSimpleHtml(): string {
+        // Add state persistence
+        const sidebarState = 'false'; // localStorage is not available in webview context
+        const savedTheme = 'auto'; // Default theme
+
         return `
 <!DOCTYPE html>
 <html>
@@ -131,6 +173,23 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             --accent-blue: #0e639c;
             --accent-green: #4ec9b0;
             --shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        body.light-theme {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f5f5;
+            --bg-tertiary: #e8e8e8;
+            --bg-hover: #dcdcdc;
+            --text-primary: #333333;
+            --text-secondary: #666666;
+            --text-accent: #0066cc;
+            --text-success: #008000;
+            --text-warning: #996600;
+            --text-error: #cc0000;
+            --border-color: #cccccc;
+            --accent-blue: #007acc;
+            --accent-green: #008000;
+            --shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
 
         body.light-theme {
@@ -903,7 +962,77 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         .header-toggle.visible {
             display: flex;
         }
+        .loading-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        .loading-spinner {
+            font-size: 48px;
+            margin-bottom: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .loading-progress {
+            width: 100%;
+            max-width: 400px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: var(--bg-hover);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: var(--text-accent);
+            width: 0%;
+            animation: progress 2s ease-in-out infinite;
+        }
+        @keyframes progress {
+            0% { width: 0%; }
+            50% { width: 70%; }
+            100% { width: 100%; }
+        }
+        .loading-message {
+            font-size: 14px;
+            margin: 0;
+        }
     </style>
+    <script>
+        // Initialize theme
+        function applyTheme(theme) {
+            const effectiveTheme = theme === 'auto' ?
+                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') :
+                theme;
+
+            document.body.classList.toggle('light-theme', effectiveTheme === 'light');
+            document.body.classList.toggle('dark-theme', effectiveTheme === 'dark');
+        }
+        applyTheme('${savedTheme}');
+
+        // Initialize sidebar state
+        if (${sidebarState}) {
+            document.getElementById('sidebar').classList.add('collapsed');
+            document.getElementById('headerToggle').classList.add('visible');
+        }
+
+        // Theme change listener
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+            if (savedTheme === 'auto') {
+                applyTheme('auto');
+            }
+        });
+    </script>
 </head>
 <body>
     <div class="app">
@@ -999,19 +1128,20 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         const sidebarToggle = document.getElementById('sidebarToggle');
         const headerToggle = document.getElementById('headerToggle');
 
+        // Initialize state with saved values
         let currentVariableData = null;
         let fullVariableData = null;
-        let currentDisplayMode = 'image';
-        let currentViewMode = 'magnitude';
-        let currentAxis = 2;
-        let currentSlice = 0;
-        let currentTheme = 'auto';
-        let currentShowCount1D = 50;
-        let currentShowRows2D = 50;
-        let currentShowCols2D = 20;
+        let currentDisplayMode = localStorage.getItem('matViewerDisplayMode') || 'image';
+        let currentViewMode = localStorage.getItem('matViewerViewMode') || 'magnitude';
+        let currentAxis = parseInt(localStorage.getItem('matViewerAxis') || '2');
+        let currentSlice = parseInt(localStorage.getItem('matViewerSlice') || '0');
+        let currentTheme = localStorage.getItem('matViewerTheme') || 'auto';
+        let currentShowCount1D = parseInt(localStorage.getItem('matViewerShowCount1D') || '50');
+        let currentShowRows2D = parseInt(localStorage.getItem('matViewerShowRows2D') || '50');
+        let currentShowCols2D = parseInt(localStorage.getItem('matViewerShowCols2D') || '20');
         let currentFileData = null;
         let currentActiveVariable = null;
-        let sidebarCollapsed = false;
+        let sidebarCollapsed = localStorage.getItem('matViewerSidebarCollapsed') === 'true';
         let currentFilePath = null;
         let currentLoadedSliceData = null;
 
@@ -1771,6 +1901,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
 
         window.setDisplayMode = function(mode) {
             currentDisplayMode = mode;
+            localStorage.setItem('matViewerDisplayMode', mode);
             if (fullVariableData && currentVariableData) {
                 mainContent.innerHTML = renderPreview(currentVariableData.name, fullVariableData);
             }
@@ -1778,6 +1909,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
 
         window.setViewMode = function(mode) {
             currentViewMode = mode;
+            localStorage.setItem('matViewerViewMode', mode);
             if (fullVariableData && currentVariableData) {
                 mainContent.innerHTML = renderPreview(currentVariableData.name, fullVariableData);
             }
@@ -1787,13 +1919,15 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             currentAxis = parseInt(axis);
             currentSlice = 0;
             currentLoadedSliceData = null;
-            
+            localStorage.setItem('matViewerAxis', axis);
+            localStorage.setItem('matViewerSlice', '0');
+
             if (fullVariableData && currentVariableData) {
                 if (!fullVariableData.data && fullVariableData.shape.length >= 3) {
                     requestSliceFromBackend(currentAxis, currentSlice);
                 }
                 mainContent.innerHTML = renderPreview(currentVariableData.name, fullVariableData);
-                
+
                 if (fullVariableData.data && currentDisplayMode === 'image') {
                     const sliceData = get3DSlice(fullVariableData, currentAxis, currentSlice, currentViewMode);
                     setTimeout(() => renderImageToCanvas(sliceData), 10);
@@ -1804,14 +1938,15 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         window.updateSlice = function(value) {
             currentSlice = parseInt(value);
             currentLoadedSliceData = null;
+            localStorage.setItem('matViewerSlice', value);
             document.getElementById('sliceValue').textContent = value;
-            
+
             if (fullVariableData && currentVariableData) {
                 if (!fullVariableData.data && fullVariableData.shape.length >= 3) {
                     requestSliceFromBackend(currentAxis, currentSlice);
                     return;
                 }
-                
+
                 if (currentDisplayMode === 'image') {
                     const sliceData = get3DSlice(fullVariableData, currentAxis, currentSlice, currentViewMode);
                     renderImageToCanvas(sliceData);
