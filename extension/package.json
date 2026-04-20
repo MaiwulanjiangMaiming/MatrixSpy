@@ -32,7 +32,9 @@
     "Data Science",
     "Visualization"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -63,8 +65,13 @@
         "category": "MatrixSpy"
       },
       {
-        "command": "matrixspy.openSample",
-        "title": "Open Sample MAT File",
+        "command": "matrixspy.testEnvironment",
+        "title": "Test Python Environment",
+        "category": "MatrixSpy"
+      },
+      {
+        "command": "matrixspy.showSetupWizard",
+        "title": "Show Setup Wizard",
         "category": "MatrixSpy"
       },
       {
@@ -157,9 +164,17 @@
             }
           },
           {
+            "id": "test-environment",
+            "title": "Test Python Environment",
+            "description": "After installation, verify your environment and package availability.\n[Test Environment](command:matrixspy.testEnvironment)",
+            "media": {
+              "markdown": "media/install.md"
+            }
+          },
+          {
             "id": "open",
             "title": "Open a MAT File",
-            "description": "There are three ways to open a .mat file:\n\n1. **Double-click** any `.mat` file in the Explorer\n2. **Right-click** a `.mat` file → \"Open MAT File\"\n3. Use Command Palette: `Cmd+Shift+P` → \"MatrixSpy: Open MAT File\"\n\n[Open Sample File](command:matrixspy.openSample)",
+            "description": "There are three ways to open a .mat file:\n\n1. **Double-click** any `.mat` file in the Explorer\n2. **Right-click** a `.mat` file → \"Open MAT File\"\n3. Use Command Palette: `Cmd+Shift+P` → \"MatrixSpy: Open MAT File\"",
             "media": {
               "markdown": "media/open.md"
             }

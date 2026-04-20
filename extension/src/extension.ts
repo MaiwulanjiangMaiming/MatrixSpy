@@ -10,7 +10,7 @@ import { MatVariableTreeDataProvider, setCurrentData, setCurrentWebviewPanel, sh
 import { PythonBridge, DependencyCheckResult } from './ipc/PythonBridge';
 import { openFileCommand } from './commands/openFile';
 import { exportCSVCommand, exportJSONCommand } from './commands/exportData';
-import { installDepsCommand, openSampleCommand } from './commands/walkthroughCommands';
+import { installDepsCommand, testEnvironmentCommand } from './commands/walkthroughCommands';
 import { MatFileData, ParserResult } from './types';
 
 const LOG_PREFIX = '[MatrixSpy]';
@@ -22,6 +22,7 @@ const fileDataCache = new Map<string, MatFileData>();
 let currentActiveFile: string | null = null;
 let currentPythonBridge: PythonBridge | null = null;
 let currentWebviewPanel: vscode.WebviewPanel | null = null;
+let currentSetupPanel: vscode.WebviewPanel | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     console.log(`${LOG_PREFIX} Extension is now active!`);
@@ -41,15 +42,173 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 async function checkAndShowWelcome(context: vscode.ExtensionContext): Promise<void> {
     const config = vscode.workspace.getConfiguration('matrixspy');
     const pythonPath = config.get<string>('pythonPath', 'python3');
-
     const depResult = await PythonBridge.checkDependencies(pythonPath);
     console.log(`${LOG_PREFIX} Dependency check result:`, depResult);
-
     const welcomeShown = context.globalState.get<boolean>(WELCOME_SHOWN_KEY, false);
 
-    if (!depResult.allDependenciesMet || !welcomeShown) {
-        await showWelcomePage(context, depResult);
+    if (!welcomeShown) {
+        await showSetupWizard(context, depResult, true);
+        return;
     }
+
+    if (!depResult.allDependenciesMet) {
+        const action = await vscode.window.showWarningMessage(
+            'MatrixSpy: Environment is not fully ready. Run setup now?',
+            'Open Setup Wizard',
+            'Test Environment',
+            'Dismiss'
+        );
+
+        if (action === 'Open Setup Wizard') {
+            await showSetupWizard(context, depResult, false);
+        } else if (action === 'Test Environment') {
+            const testResult = await testEnvironmentCommand();
+            if (testResult.allDependenciesMet) {
+                await context.globalState.update(WELCOME_SHOWN_KEY, true);
+            }
+        }
+    }
+}
+
+async function showSetupWizard(
+    context: vscode.ExtensionContext,
+    depResult: DependencyCheckResult,
+    isFirstLaunch: boolean
+): Promise<void> {
+    if (currentSetupPanel) {
+        currentSetupPanel.reveal(vscode.ViewColumn.One);
+        currentSetupPanel.webview.postMessage({
+            command: 'status',
+            payload: depResult
+        });
+        return;
+    }
+
+    currentSetupPanel = vscode.window.createWebviewPanel(
+        'matrixspySetupWizard',
+        'MatrixSpy Setup',
+        vscode.ViewColumn.One,
+        {
+            enableScripts: true
+        }
+    );
+
+    currentSetupPanel.webview.html = getSetupWizardHtml(depResult, isFirstLaunch);
+
+    currentSetupPanel.onDidDispose(() => {
+        currentSetupPanel = null;
+    });
+
+    currentSetupPanel.webview.onDidReceiveMessage(async (message: { command?: string }) => {
+        switch (message.command) {
+            case 'installDeps':
+                await installDepsCommand();
+                break;
+            case 'testEnvironment': {
+                const result = await testEnvironmentCommand();
+                currentSetupPanel?.webview.postMessage({ command: 'status', payload: result });
+                if (result.allDependenciesMet) {
+                    await context.globalState.update(WELCOME_SHOWN_KEY, true);
+                }
+                break;
+            }
+            case 'openSettings':
+                await vscode.commands.executeCommand('workbench.action.openSettings', 'matrixspy.pythonPath');
+                break;
+            case 'openWalkthrough': {
+                const config = vscode.workspace.getConfiguration('matrixspy');
+                const pythonPath = config.get<string>('pythonPath', 'python3');
+                const freshDepResult = await PythonBridge.checkDependencies(pythonPath);
+                await showWelcomePage(context, freshDepResult);
+                break;
+            }
+            case 'markDone':
+                await context.globalState.update(WELCOME_SHOWN_KEY, true);
+                currentSetupPanel?.dispose();
+                break;
+            case 'close':
+                currentSetupPanel?.dispose();
+                break;
+            default:
+                break;
+        }
+    });
+}
+
+function getSetupWizardHtml(depResult: DependencyCheckResult, isFirstLaunch: boolean): string {
+    const title = isFirstLaunch ? 'Welcome to MatrixSpy' : 'MatrixSpy Environment Setup';
+    const intro = isFirstLaunch
+        ? 'Complete one-time environment setup so MatrixSpy can parse MAT files correctly.'
+        : 'Your environment is incomplete. Use the actions below to fix and verify dependencies.';
+    const status = depResult.pythonFound
+        ? (depResult.allDependenciesMet
+            ? `Ready: ${depResult.pythonVersion ?? 'Python detected'} with all required packages.`
+            : `Python detected (${depResult.pythonVersion ?? 'unknown version'}), missing packages: ${depResult.missingPackages.join(', ')}`)
+        : 'Python not found. Please install Python 3.8+ or configure matrixspy.pythonPath.';
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MatrixSpy Setup</title>
+    <style>
+        body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 20px; max-width: 760px; margin: 0 auto; }
+        h1 { margin-bottom: 8px; }
+        .muted { color: var(--vscode-descriptionForeground); margin-bottom: 16px; }
+        .panel { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-editorWidget-border); border-radius: 6px; padding: 14px; margin-bottom: 16px; }
+        .label { font-weight: 600; margin-bottom: 6px; }
+        .status { line-height: 1.5; }
+        .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+        button { border: 1px solid var(--vscode-button-border, transparent); background: var(--vscode-button-background); color: var(--vscode-button-foreground); padding: 8px 12px; border-radius: 4px; cursor: pointer; }
+        button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+    </style>
+</head>
+<body>
+    <h1>${title}</h1>
+    <div class="muted">${intro}</div>
+    <div class="panel">
+        <div class="label">Environment Status</div>
+        <div id="status" class="status">${status}</div>
+    </div>
+    <div class="actions">
+        <button id="install">Install Dependencies</button>
+        <button id="test" class="secondary">Test Environment</button>
+        <button id="settings" class="secondary">Open Python Settings</button>
+        <button id="walkthrough" class="secondary">Open Welcome Guide</button>
+        <button id="done" class="secondary">Mark As Done</button>
+        <button id="close" class="secondary">Close</button>
+    </div>
+    <script>
+        const vscode = acquireVsCodeApi();
+        const statusEl = document.getElementById('status');
+
+        document.getElementById('install').addEventListener('click', () => vscode.postMessage({ command: 'installDeps' }));
+        document.getElementById('test').addEventListener('click', () => vscode.postMessage({ command: 'testEnvironment' }));
+        document.getElementById('settings').addEventListener('click', () => vscode.postMessage({ command: 'openSettings' }));
+        document.getElementById('walkthrough').addEventListener('click', () => vscode.postMessage({ command: 'openWalkthrough' }));
+        document.getElementById('done').addEventListener('click', () => vscode.postMessage({ command: 'markDone' }));
+        document.getElementById('close').addEventListener('click', () => vscode.postMessage({ command: 'close' }));
+
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.command !== 'status' || !message.payload) {
+                return;
+            }
+            const dep = message.payload;
+            if (!dep.pythonFound) {
+                statusEl.textContent = 'Python not found. Please install Python 3.8+ or configure matrixspy.pythonPath.';
+                return;
+            }
+            if (!dep.allDependenciesMet) {
+                statusEl.textContent = 'Python detected (' + (dep.pythonVersion || 'unknown version') + '), missing packages: ' + dep.missingPackages.join(', ');
+                return;
+            }
+            statusEl.textContent = 'Ready: ' + (dep.pythonVersion || 'Python detected') + ' with all required packages.';
+        });
+    </script>
+</body>
+</html>`;
 }
 
 async function showWelcomePage(context: vscode.ExtensionContext, depResult: DependencyCheckResult): Promise<void> {
@@ -62,10 +221,13 @@ async function showWelcomePage(context: vscode.ExtensionContext, depResult: Depe
         vscode.window.showWarningMessage(
             'MatrixSpy: Python not found. Please install Python 3.8+ and configure the pythonPath setting.',
             'Configure Settings',
+            'Test Environment',
             'Dismiss'
         ).then(selection => {
             if (selection === 'Configure Settings') {
                 vscode.commands.executeCommand('workbench.action.openSettings', 'matrixspy.pythonPath');
+            } else if (selection === 'Test Environment') {
+                vscode.commands.executeCommand('matrixspy.testEnvironment');
             }
         });
     } else if (!depResult.allDependenciesMet) {
@@ -73,11 +235,14 @@ async function showWelcomePage(context: vscode.ExtensionContext, depResult: Depe
         const action = await vscode.window.showWarningMessage(
             `MatrixSpy: Missing Python packages: ${missing}. Install now?`,
             'Install Dependencies',
+            'Test Environment',
             'Dismiss'
         );
 
         if (action === 'Install Dependencies') {
             await installDepsCommand();
+        } else if (action === 'Test Environment') {
+            await vscode.commands.executeCommand('matrixspy.testEnvironment');
         }
     } else {
         await context.globalState.update(WELCOME_SHOWN_KEY, true);
@@ -115,7 +280,18 @@ function registerCommands(context: vscode.ExtensionContext): void {
             showVariable(name, value);
         }),
         vscode.commands.registerCommand('matrixspy.installDeps', () => installDepsCommand()),
-        vscode.commands.registerCommand('matrixspy.openSample', () => openSampleCommand(context)),
+        vscode.commands.registerCommand('matrixspy.testEnvironment', async () => {
+            const result = await testEnvironmentCommand();
+            if (result.allDependenciesMet) {
+                await context.globalState.update(WELCOME_SHOWN_KEY, true);
+            }
+        }),
+        vscode.commands.registerCommand('matrixspy.showSetupWizard', async () => {
+            const config = vscode.workspace.getConfiguration('matrixspy');
+            const pythonPath = config.get<string>('pythonPath', 'python3');
+            const depResult = await PythonBridge.checkDependencies(pythonPath);
+            await showSetupWizard(context, depResult, false);
+        }),
         vscode.commands.registerCommand('matrixspy.showWelcome', async () => {
             const config = vscode.workspace.getConfiguration('matrixspy');
             const pythonPath = config.get<string>('pythonPath', 'python3');

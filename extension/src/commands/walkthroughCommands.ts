@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { DependencyCheckResult, PythonBridge } from '../ipc/PythonBridge';
 
 export async function installDepsCommand(): Promise<void> {
     const config = vscode.workspace.getConfiguration('matrixspy');
@@ -108,6 +109,49 @@ export async function installDepsCommand(): Promise<void> {
             terminal.sendText(`echo "  ${pythonPath} -c 'import scipy, numpy, h5py, mat73; print("All dependencies installed!")'`);
             break;
     }
+}
+
+export async function testEnvironmentCommand(): Promise<DependencyCheckResult> {
+    const config = vscode.workspace.getConfiguration('matrixspy');
+    const pythonPath = config.get<string>('pythonPath', 'python3');
+    const depResult = await PythonBridge.checkDependencies(pythonPath);
+
+    if (!depResult.pythonFound) {
+        const action = await vscode.window.showErrorMessage(
+            `MatrixSpy: Python not found at "${pythonPath}". Configure pythonPath or install Python 3.8+ first.`,
+            'Configure Settings',
+            'Install Guide'
+        );
+
+        if (action === 'Configure Settings') {
+            await vscode.commands.executeCommand('workbench.action.openSettings', 'matrixspy.pythonPath');
+        } else if (action === 'Install Guide') {
+            await vscode.commands.executeCommand('matrixspy.showWelcome');
+        }
+        return depResult;
+    }
+
+    if (!depResult.allDependenciesMet) {
+        const missing = depResult.missingPackages.join(', ');
+        const action = await vscode.window.showWarningMessage(
+            `MatrixSpy: Python detected (${depResult.pythonVersion ?? 'unknown version'}), but missing packages: ${missing}.`,
+            'Install Dependencies',
+            'Open Guide'
+        );
+
+        if (action === 'Install Dependencies') {
+            await installDepsCommand();
+        } else if (action === 'Open Guide') {
+            await vscode.commands.executeCommand('matrixspy.showWelcome');
+        }
+        return depResult;
+    }
+
+    await vscode.window.showInformationMessage(
+        `MatrixSpy environment is ready. ${depResult.pythonVersion ?? 'Python detected'} with all required packages.`
+    );
+
+    return depResult;
 }
 
 export async function openSampleCommand(context: vscode.ExtensionContext): Promise<void> {

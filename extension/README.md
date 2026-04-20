@@ -25,7 +25,7 @@ A powerful VS Code extension for exploring, visualizing, and exporting MATLAB .m
   - CSV export
   - JSON export
   - NumPy format
-- ✅ **Welcome page with dependency check**:
+- ✅ **Setup wizard with dependency check**:
   - Auto-detect Python installation
   - Guide users to install missing packages
 
@@ -98,11 +98,9 @@ MIT License
 
 ## Changelog
 
-### v1.1.1 (2026-04-18)
+### v1.1.1 (2026-04-20)
 
-- Welcome page with dependency check
-- Auto-detect Python and required packages
-- Simplified project structure
+- 修复 bug
 
 ### v1.1.0 (2026-04-07)
 
