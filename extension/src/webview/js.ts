@@ -1,0 +1,1288 @@
+export function getJs(version: string): string {
+    return `
+const VERSION = '${version}';
+const vscode = acquireVsCodeApi();
+const mainContent = document.getElementById('mainContent');
+const fileInfo = document.getElementById('fileInfo');
+const settingsBtn = document.getElementById('settingsBtn');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+const settingsPanel = document.getElementById('settingsPanel');
+const overlay = document.getElementById('overlay');
+const darkTheme = document.getElementById('darkTheme');
+const lightTheme = document.getElementById('lightTheme');
+const autoTheme = document.getElementById('autoTheme');
+const githubLink = document.getElementById('githubLink');
+const sidebar = document.getElementById('sidebar');
+const sidebarContent = document.getElementById('sidebarContent');
+const sidebarToggle = document.getElementById('sidebarToggle');
+const headerToggle = document.getElementById('headerToggle');
+
+const state = {
+    currentVariableData: null,
+    fullVariableData: null,
+    currentDisplayMode: localStorage.getItem('matViewerDisplayMode') || 'image',
+    currentViewMode: localStorage.getItem('matViewerViewMode') || 'magnitude',
+    currentAxis: parseInt(localStorage.getItem('matViewerAxis') || '2'),
+    currentSlice: parseInt(localStorage.getItem('matViewerSlice') || '0'),
+    currentTheme: localStorage.getItem('matViewerTheme') || 'auto',
+    currentShowCount1D: parseInt(localStorage.getItem('matViewerShowCount1D') || '50'),
+    currentShowRows2D: parseInt(localStorage.getItem('matViewerShowRows2D') || '50'),
+    currentShowCols2D: parseInt(localStorage.getItem('matViewerShowCols2D') || '20'),
+    currentFileData: null,
+    currentActiveVariable: null,
+    sidebarCollapsed: localStorage.getItem('matViewerSidebarCollapsed') === 'true',
+    currentFilePath: null,
+    currentLoadedSliceData: null,
+    currentColormap: localStorage.getItem('matViewerColormap') || 'grayscale',
+    expandedPaths: {},
+    dirty: false
+};
+
+function buildLUT(keyPoints) {
+    var lut = new Array(256);
+    for (var i = 0; i < 256; i++) {
+        var t = i / 255;
+        var lower = keyPoints[0], upper = keyPoints[keyPoints.length - 1];
+        for (var j = 0; j < keyPoints.length - 1; j++) {
+            if (t >= keyPoints[j][0] && t <= keyPoints[j + 1][0]) {
+                lower = keyPoints[j];
+                upper = keyPoints[j + 1];
+                break;
+            }
+        }
+        var range = upper[0] - lower[0] || 1;
+        var f = (t - lower[0]) / range;
+        lut[i] = [
+            Math.round(lower[1] + (upper[1] - lower[1]) * f),
+            Math.round(lower[2] + (upper[2] - lower[2]) * f),
+            Math.round(lower[3] + (upper[3] - lower[3]) * f)
+        ];
+    }
+    return lut;
+}
+
+var COLORMAPS = {
+    grayscale: function(t) {
+        var v = Math.round(t * 255);
+        return [v, v, v];
+    },
+    viridis: (function() {
+        var lut = buildLUT([
+            [0.0, 68, 1, 84],
+            [0.07, 72, 20, 103],
+            [0.13, 71, 33, 115],
+            [0.2, 65, 53, 130],
+            [0.27, 59, 82, 139],
+            [0.33, 52, 96, 141],
+            [0.4, 44, 113, 142],
+            [0.47, 37, 130, 142],
+            [0.53, 33, 145, 140],
+            [0.6, 35, 158, 134],
+            [0.67, 52, 179, 123],
+            [0.73, 78, 195, 108],
+            [0.8, 114, 208, 88],
+            [0.87, 155, 217, 64],
+            [0.93, 200, 225, 47],
+            [1.0, 253, 231, 37]
+        ]);
+        return function(t) { return lut[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
+    })(),
+    inferno: (function() {
+        var lut = buildLUT([
+            [0.0, 0, 0, 4],
+            [0.07, 10, 5, 30],
+            [0.13, 25, 10, 60],
+            [0.2, 49, 18, 84],
+            [0.27, 74, 12, 107],
+            [0.33, 100, 20, 115],
+            [0.4, 130, 34, 110],
+            [0.47, 159, 50, 96],
+            [0.53, 186, 67, 79],
+            [0.6, 210, 85, 60],
+            [0.67, 230, 108, 42],
+            [0.73, 245, 133, 24],
+            [0.8, 250, 162, 17],
+            [0.87, 248, 192, 30],
+            [0.93, 245, 225, 70],
+            [1.0, 252, 255, 164]
+        ]);
+        return function(t) { return lut[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
+    })(),
+    plasma: (function() {
+        var lut = buildLUT([
+            [0.0, 13, 8, 135],
+            [0.07, 34, 4, 148],
+            [0.13, 60, 3, 158],
+            [0.2, 88, 12, 162],
+            [0.27, 116, 25, 160],
+            [0.33, 142, 38, 152],
+            [0.4, 166, 52, 141],
+            [0.47, 188, 66, 126],
+            [0.53, 208, 82, 108],
+            [0.6, 225, 100, 88],
+            [0.67, 238, 122, 70],
+            [0.73, 247, 147, 54],
+            [0.8, 251, 174, 42],
+            [0.87, 250, 204, 35],
+            [0.93, 244, 230, 32],
+            [1.0, 240, 249, 33]
+        ]);
+        return function(t) { return lut[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
+    })()
+};
+
+var canvasRenderScheduled = false;
+var pendingCanvasData = null;
+
+function scheduleCanvasRender(data) {
+    state.dirty = true;
+    pendingCanvasData = data;
+    if (!canvasRenderScheduled) {
+        canvasRenderScheduled = true;
+        requestAnimationFrame(function() {
+            canvasRenderScheduled = false;
+            if (state.dirty && pendingCanvasData) {
+                renderImageToCanvas(pendingCanvasData);
+            }
+        });
+    }
+}
+
+function detectSystemTheme() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+    state.currentTheme = theme;
+    localStorage.setItem('matViewerTheme', theme);
+
+    var effectiveTheme = theme;
+    if (theme === 'auto') {
+        effectiveTheme = detectSystemTheme();
+    }
+
+    document.body.classList.remove('dark-theme', 'light-theme');
+    if (effectiveTheme === 'light') {
+        document.body.classList.add('light-theme');
+    }
+
+    updateThemeButtons();
+}
+
+function updateThemeButtons() {
+    [darkTheme, lightTheme, autoTheme].forEach(function(el) { el.classList.remove('active'); });
+    if (state.currentTheme === 'dark') darkTheme.classList.add('active');
+    else if (state.currentTheme === 'light') lightTheme.classList.add('active');
+    else autoTheme.classList.add('active');
+}
+
+function toggleSidebar() {
+    state.sidebarCollapsed = !state.sidebarCollapsed;
+    if (state.sidebarCollapsed) {
+        sidebar.classList.add('collapsed');
+        headerToggle.classList.add('visible');
+    } else {
+        sidebar.classList.remove('collapsed');
+        headerToggle.classList.remove('visible');
+    }
+    localStorage.setItem('matViewerSidebarCollapsed', String(state.sidebarCollapsed));
+}
+
+function getVariableIcon(value) {
+    if (typeof value === 'number') return '🔢';
+    if (typeof value === 'string') return '📝';
+    if (value && value._type === 'complex') return '🔀';
+    if (value && value._type === 'ndarray') {
+        if (value.shape.length === 1) return '📈';
+        if (value.shape.length === 2) return '📊';
+        if (value.shape.length === 3) return '🎲';
+        return '📦';
+    }
+    if (typeof value === 'object') return '📁';
+    return '❓';
+}
+
+function renderSidebar(data) {
+    if (!data || typeof data !== 'object') {
+        sidebarContent.innerHTML = '<div class="sidebar-empty">No variables</div>';
+        return;
+    }
+
+    state.currentFileData = data;
+    var varNames = Object.keys(data).sort();
+
+    var html = '';
+    varNames.forEach(function(name) {
+        html += renderTreeItem(name, data[name], name, 0);
+    });
+
+    sidebarContent.innerHTML = html;
+
+    attachTreeEventListeners();
+}
+
+function renderTreeItem(name, value, path, depth) {
+    var type = formatType(value);
+    var icon = getVariableIcon(value);
+    var isActive = state.currentActiveVariable === path;
+    var isStruct = value && typeof value === 'object' && value._type !== 'ndarray' && value._type !== 'complex';
+    var isExpanded = state.expandedPaths[path];
+
+    var hasChildren = isStruct && Object.keys(value).some(function(k) { return k !== '_type'; });
+    var childKeys = hasChildren ? Object.keys(value).filter(function(k) { return k !== '_type'; }).sort() : [];
+
+    var html = '<div class="sidebar-tree-item' + (isActive ? ' active' : '') + '" data-path="' + path + '" data-depth="' + depth + '">';
+
+    if (hasChildren) {
+        html += '<span class="sidebar-tree-toggle' + (isExpanded ? ' expanded' : '') + '">' + (isExpanded ? '▼' : '▶') + '</span>';
+    } else {
+        html += '<span class="sidebar-tree-toggle empty"></span>';
+    }
+
+    html += '<span class="sidebar-tree-icon">' + icon + '</span>';
+    html += '<span class="sidebar-tree-name">' + name + '</span>';
+
+    if (value && value._type === 'ndarray' && value.shape.length === 1 && value.data) {
+        html += '<span class="sidebar-tree-shape">' + renderSparkline(value.data) + '</span>';
+    }
+
+    html += '<span class="sidebar-tree-type">' + type + '</span>';
+    html += '</div>';
+
+    if (hasChildren && isExpanded) {
+        html += '<div class="sidebar-tree-children expanded">';
+        childKeys.forEach(function(childKey) {
+            var childPath = path + '.' + childKey;
+            html += renderTreeItem(childKey, value[childKey], childPath, depth + 1);
+        });
+        html += '</div>';
+    }
+
+    return html;
+}
+
+function attachTreeEventListeners() {
+    document.querySelectorAll('.sidebar-tree-toggle:not(.empty)').forEach(function(toggle) {
+        toggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var item = this.closest('.sidebar-tree-item');
+            var path = item.getAttribute('data-path');
+
+            if (state.expandedPaths[path]) {
+                delete state.expandedPaths[path];
+            } else {
+                state.expandedPaths[path] = true;
+            }
+
+            renderSidebar(state.currentFileData);
+        });
+    });
+
+    document.querySelectorAll('.sidebar-tree-item').forEach(function(item) {
+        item.addEventListener('click', function(e) {
+            if (e.target.classList.contains('sidebar-tree-toggle')) return;
+
+            var path = this.getAttribute('data-path');
+            selectTreeItem(path);
+        });
+    });
+}
+
+function selectTreeItem(path) {
+    console.log('[DEBUG] selectTreeItem called:', path);
+
+    var parts = path.split('.');
+    var value = state.currentFileData;
+
+    for (var i = 0; i < parts.length; i++) {
+        var part = parts[i];
+        if (value && typeof value === 'object') {
+            value = value[part];
+        } else {
+            console.log('[DEBUG] selectTreeItem: path not found at', part);
+            return;
+        }
+    }
+
+    if (value === undefined) {
+        console.log('[DEBUG] selectTreeItem: no value for path', path);
+        return;
+    }
+
+    state.currentActiveVariable = path;
+
+    state.fullVariableData = value;
+    state.currentVariableData = { name: parts[parts.length - 1] };
+    state.currentDisplayMode = 'image';
+    state.currentViewMode = 'magnitude';
+    state.currentAxis = 2;
+    state.currentSlice = 0;
+    state.currentShowCount1D = 50;
+    state.currentShowRows2D = 50;
+    state.currentShowCols2D = 20;
+    state.currentLoadedSliceData = null;
+    state.dirty = true;
+
+    console.log('[DEBUG] selectTreeItem: rendering preview for', path);
+
+    mainContent.innerHTML = renderPreview(parts[parts.length - 1], value);
+
+    document.querySelectorAll('.sidebar-tree-item').forEach(function(item) {
+        item.classList.remove('active');
+        if (item.getAttribute('data-path') === path) {
+            item.classList.add('active');
+        }
+    });
+}
+
+function openSettings() {
+    settingsPanel.classList.add('open');
+    overlay.classList.add('visible');
+}
+
+function closeSettings() {
+    settingsPanel.classList.remove('open');
+    overlay.classList.remove('visible');
+}
+
+function formatType(value) {
+    if (typeof value === 'number') return 'number';
+    if (typeof value === 'string') return 'string';
+    if (value && value._type === 'complex') return 'complex';
+    if (value && value._type === 'ndarray') {
+        if (value.shape.length === 1) return value.shape[0] + '×1';
+        if (value.shape.length === 2) return value.shape[0] + '×' + value.shape[1];
+        if (value.shape.length === 3) return value.shape.join('×');
+        return 'ndarray';
+    }
+    if (typeof value === 'object') return 'struct';
+    return typeof value;
+}
+
+function formatSize(size) {
+    if (size < 1024) return size + ' B';
+    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB';
+    return (size / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function formatFieldValue(value) {
+    if (typeof value === 'number') {
+        return value.toString();
+    } else if (typeof value === 'string') {
+        return '"' + value + '"';
+    } else if (value && value._type === 'complex') {
+        return value.real + (value.imag >= 0 ? '+' : '') + value.imag + 'i';
+    } else if (value && value._type === 'ndarray') {
+        return 'ndarray: ' + value.shape.join('×') + ' · ' + value.dtype;
+    } else if (typeof value === 'object' && value !== null) {
+        return 'Object: ' + Object.keys(value).filter(function(k) { return k !== '_type'; }).join(', ');
+    }
+    return String(value);
+}
+
+function renderStats(stats) {
+    if (!stats || stats.min === undefined) return '';
+    var html = '<div class="stats-grid">' +
+        '<div class="stat-item"><div class="stat-label">Min</div><div class="stat-value">' + (typeof stats.min === 'number' ? stats.min.toFixed(4) : stats.min) + '</div></div>' +
+        '<div class="stat-item"><div class="stat-label">Max</div><div class="stat-value">' + (typeof stats.max === 'number' ? stats.max.toFixed(4) : stats.max) + '</div></div>';
+    if (stats.mean !== undefined) {
+        html += '<div class="stat-item"><div class="stat-label">Mean</div><div class="stat-value">' + (typeof stats.mean === 'number' ? stats.mean.toFixed(4) : stats.mean) + '</div></div>';
+    }
+    if (stats.std !== undefined) {
+        html += '<div class="stat-item"><div class="stat-label">Std</div><div class="stat-value">' + (typeof stats.std === 'number' ? stats.std.toFixed(4) : stats.std) + '</div></div>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function get2DSlice(value, viewMode) {
+    if (!value.data) return null;
+
+    var data = value.data;
+
+    if (value.complex) {
+        if (viewMode === 'magnitude') {
+            return data.map(function(row) { return row.map(function(v) { return Math.sqrt(v.real * v.real + v.imag * v.imag); }); });
+        } else if (viewMode === 'phase') {
+            return data.map(function(row) { return row.map(function(v) { return Math.atan2(v.imag, v.real); }); });
+        } else if (viewMode === 'real') {
+            return data.map(function(row) { return row.map(function(v) { return v.real; }); });
+        } else if (viewMode === 'imag') {
+            return data.map(function(row) { return row.map(function(v) { return v.imag; }); });
+        }
+    }
+    return data;
+}
+
+function get3DSlice(value, axis, sliceIndex, viewMode) {
+    if (!value.data) return null;
+
+    var shape = value.shape;
+    var sliceData = null;
+
+    if (axis === 0) {
+        sliceData = value.data[sliceIndex];
+    } else if (axis === 1) {
+        sliceData = value.data.map(function(row) { return row[sliceIndex]; });
+    } else if (axis === 2) {
+        sliceData = value.data.map(function(row) { return row.map(function(col) { return col[sliceIndex]; }); });
+    }
+
+    if (value.complex) {
+        if (viewMode === 'magnitude') {
+            return sliceData.map(function(row) { return row.map(function(v) { return Math.sqrt(v.real * v.real + v.imag * v.imag); }); });
+        } else if (viewMode === 'phase') {
+            return sliceData.map(function(row) { return row.map(function(v) { return Math.atan2(v.imag, v.real); }); });
+        } else if (viewMode === 'real') {
+            return sliceData.map(function(row) { return row.map(function(v) { return v.real; }); });
+        } else if (viewMode === 'imag') {
+            return sliceData.map(function(row) { return row.map(function(v) { return v.imag; }); });
+        }
+    }
+    return sliceData;
+}
+
+function renderImageToCanvas(data) {
+    if (!state.dirty) return;
+    state.dirty = false;
+
+    var canvas = document.getElementById('imageCanvas');
+    if (!canvas) {
+        console.log('[DEBUG] renderImageToCanvas: NO CANVAS found!');
+        return;
+    }
+    if (!data) {
+        console.log('[DEBUG] renderImageToCanvas: NO DATA!');
+        return;
+    }
+
+    var height = data.length;
+    var width = data[0].length;
+    var totalElements = height * width;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    var ctx = canvas.getContext('2d');
+    var imageData = ctx.createImageData(width, height);
+
+    var min = Infinity, max = -Infinity;
+    for (var y = 0; y < height; y++) {
+        for (var x = 0; x < width; x++) {
+            var val = data[y][x];
+            if (val < min) min = val;
+            if (val > max) max = val;
+        }
+    }
+
+    var range = max - min || 1;
+    var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
+
+    if (totalElements > 1000000) {
+        var currentRow = 0;
+        var CHUNK_SIZE = 100;
+
+        function renderChunk() {
+            var endRow = Math.min(currentRow + CHUNK_SIZE, height);
+            for (var cy = currentRow; cy < endRow; cy++) {
+                for (var cx = 0; cx < width; cx++) {
+                    var cval = data[cy][cx];
+                    var cnorm = (cval - min) / range;
+                    var crgb = colormap(cnorm);
+                    var cidx = (cy * width + cx) * 4;
+                    imageData.data[cidx] = crgb[0];
+                    imageData.data[cidx + 1] = crgb[1];
+                    imageData.data[cidx + 2] = crgb[2];
+                    imageData.data[cidx + 3] = 255;
+                }
+            }
+            currentRow = endRow;
+            ctx.putImageData(imageData, 0, 0);
+
+            if (currentRow < height) {
+                setTimeout(renderChunk, 0);
+            }
+        }
+
+        requestAnimationFrame(renderChunk);
+    } else {
+        for (var ny = 0; ny < height; ny++) {
+            for (var nx = 0; nx < width; nx++) {
+                var nval = data[ny][nx];
+                var nnorm = (nval - min) / range;
+                var nrgb = colormap(nnorm);
+                var nidx = (ny * width + nx) * 4;
+                imageData.data[nidx] = nrgb[0];
+                imageData.data[nidx + 1] = nrgb[1];
+                imageData.data[nidx + 2] = nrgb[2];
+                imageData.data[nidx + 3] = 255;
+            }
+        }
+        requestAnimationFrame(function() {
+            ctx.putImageData(imageData, 0, 0);
+        });
+    }
+}
+
+function renderHistogram(data, canvasId) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas || !data || data.length === 0) return;
+
+    var ctx = canvas.getContext('2d');
+    var width = canvas.width;
+    var height = canvas.height;
+
+    var numBins = 30;
+    var min = Infinity, max = -Infinity;
+    for (var i = 0; i < data.length; i++) {
+        if (typeof data[i] === 'number') {
+            if (data[i] < min) min = data[i];
+            if (data[i] > max) max = data[i];
+        }
+    }
+
+    var range = max - min || 1;
+    var bins = new Array(numBins).fill(0);
+    for (var bi = 0; bi < data.length; bi++) {
+        if (typeof data[bi] === 'number') {
+            var binIndex = Math.min(Math.floor((data[bi] - min) / range * numBins), numBins - 1);
+            if (binIndex >= 0) bins[binIndex]++;
+        }
+    }
+
+    var maxBin = 0;
+    for (var mi = 0; mi < bins.length; mi++) {
+        if (bins[mi] > maxBin) maxBin = bins[mi];
+    }
+
+    var barWidth = width / numBins;
+
+    ctx.clearRect(0, 0, width, height);
+
+    var style = getComputedStyle(document.body);
+    var accentColor = style.getPropertyValue('--text-accent').trim() || '#3794ff';
+
+    for (var hi = 0; hi < numBins; hi++) {
+        var barHeight = maxBin > 0 ? (bins[hi] / maxBin) * height : 0;
+        ctx.fillStyle = accentColor;
+        ctx.fillRect(hi * barWidth, height - barHeight, barWidth - 1, barHeight);
+    }
+}
+
+function renderSparkline(data) {
+    if (!data || data.length === 0) return '';
+
+    var width = 60;
+    var height = 16;
+    var padding = 1;
+
+    var min = Infinity, max = -Infinity;
+    for (var i = 0; i < data.length; i++) {
+        var v = typeof data[i] === 'number' ? data[i] : (data[i] && data[i].real !== undefined ? data[i].real : 0);
+        if (v < min) min = v;
+        if (v > max) max = v;
+    }
+
+    var range = max - min || 1;
+    var step = (width - 2 * padding) / (data.length - 1 || 1);
+
+    var points = '';
+    for (var si = 0; si < data.length; si++) {
+        var sv = typeof data[si] === 'number' ? data[si] : (data[si] && data[si].real !== undefined ? data[si].real : 0);
+        var sx = padding + si * step;
+        var sy = height - padding - ((sv - min) / range) * (height - 2 * padding);
+        points += (si === 0 ? 'M' : 'L') + sx.toFixed(1) + ' ' + sy.toFixed(1);
+    }
+
+    return '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg">' +
+        '<path d="' + points + '" fill="none" stroke="var(--text-accent, #3794ff)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '</svg>';
+}
+
+function flattenData(data) {
+    var result = [];
+    if (Array.isArray(data)) {
+        for (var i = 0; i < data.length; i++) {
+            if (Array.isArray(data[i])) {
+                var inner = flattenData(data[i]);
+                for (var j = 0; j < inner.length; j++) result.push(inner[j]);
+            } else if (data[i] && data[i]._type === 'complex') {
+                result.push(data[i].real);
+            } else if (typeof data[i] === 'number') {
+                result.push(data[i]);
+            }
+        }
+    }
+    return result;
+}
+
+function render1DArray(value) {
+    if (!value.data) return '';
+
+    var data = value.data;
+    var itemsToShow = Math.min(state.currentShowCount1D, data.length);
+
+    var html = '<div class="vector-grid">';
+    for (var i = 0; i < itemsToShow; i++) {
+        var v = data[i];
+        html += '<div class="vector-item">';
+        html += '<div class="vector-index">[' + i + ']</div>';
+        if (v && v._type === 'complex') {
+            html += '<div><span class="complex-real">' + v.real.toFixed(3) + '</span></div>';
+            html += '<div><span class="complex-imag">' + v.imag.toFixed(3) + 'i</span></div>';
+        } else {
+            html += '<div>' + (typeof v === 'number' ? v.toFixed(4) : v) + '</div>';
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+
+    if (data.length > itemsToShow) {
+        html += '<div style="margin-top: 16px; text-align: center;">';
+        html += '<button class="load-more-btn" data-action="loadMore1D">📥 Load more (showing ' + itemsToShow + '/' + data.length + ')</button>';
+        html += '</div>';
+    }
+    return html;
+}
+
+function render2DTable(value) {
+    if (!value.data) return '';
+
+    var data = value.data;
+    var rowsToShow = Math.min(state.currentShowRows2D, value.shape[0]);
+    var colsToShow = Math.min(state.currentShowCols2D, value.shape[1]);
+
+    var html = '<table class="data-table">';
+    html += '<tr><th></th>';
+    for (var j = 0; j < colsToShow; j++) {
+        html += '<th>' + j + '</th>';
+    }
+    if (value.shape[1] > colsToShow) {
+        html += '<th>...</th>';
+    }
+    html += '</tr>';
+
+    for (var i = 0; i < rowsToShow; i++) {
+        html += '<tr><th>' + i + '</th>';
+        var row = data[i];
+        for (var jj = 0; jj < colsToShow; jj++) {
+            var v = row[jj];
+            html += '<td>' + (v && v._type === 'complex' ?
+                '<div class="complex-cell"><span class="complex-real">' + v.real.toFixed(4) + '</span><span class="complex-imag">' + v.imag.toFixed(4) + 'i</span></div>' :
+                (typeof v === 'number' ? v.toFixed(4) : v)
+            ) + '</td>';
+        }
+        if (value.shape[1] > colsToShow) {
+            html += '<td>...</td>';
+        }
+        html += '</tr>';
+    }
+
+    if (value.shape[0] > rowsToShow) {
+        html += '<tr><th>...</th>';
+        for (var jc = 0; jc < colsToShow; jc++) {
+            html += '<td>...</td>';
+        }
+        if (value.shape[1] > colsToShow) {
+            html += '<td>...</td>';
+        }
+        html += '</tr>';
+    }
+
+    html += '</table>';
+
+    if (value.shape[0] > rowsToShow || value.shape[1] > colsToShow) {
+        html += '<div style="margin-top: 16px; text-align: center; display: flex; gap: 12px; justify-content: center;">';
+        if (value.shape[0] > rowsToShow) {
+            html += '<button class="load-more-btn" data-action="loadMoreRows2D">📥 Load more rows (' + rowsToShow + '/' + value.shape[0] + ')</button>';
+        }
+        if (value.shape[1] > colsToShow) {
+            html += '<button class="load-more-btn" data-action="loadMoreCols2D">📥 Load more columns (' + colsToShow + '/' + value.shape[1] + ')</button>';
+        }
+        html += '</div>';
+    }
+
+    return html;
+}
+
+function render3DTable(value) {
+    var sliceData = value.data
+        ? get3DSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode)
+        : state.currentLoadedSliceData;
+
+    if (!sliceData) {
+        return '<div style="padding: 20px; text-align: center;">' +
+            '<p style="color: var(--text-secondary);">Large tensor - switch to <b>Image</b> mode for slice visualization, or the data is too large for table display.</p>' +
+            '<p id="tableLoadingIndicator" style="margin-top:12px; color: var(--text-accent); font-size:12px;"></p>' +
+            '</div>';
+    }
+
+    var rowsToShow = Math.min(state.currentShowRows2D, sliceData.length);
+    var colsToShow = Math.min(state.currentShowCols2D, sliceData[0] ? sliceData[0].length : 0);
+
+    var html = '<table class="data-table">';
+    html += '<tr><th></th>';
+    for (var j = 0; j < colsToShow; j++) {
+        html += '<th>' + j + '</th>';
+    }
+    if (sliceData[0].length > colsToShow) {
+        html += '<th>...</th>';
+    }
+    html += '</tr>';
+
+    for (var i = 0; i < rowsToShow; i++) {
+        html += '<tr><th>' + i + '</th>';
+        var row = sliceData[i];
+        for (var jj = 0; jj < colsToShow; jj++) {
+            var v = row[jj];
+            html += '<td>' + (v && v._type === 'complex' ?
+                '<div class="complex-cell"><span class="complex-real">' + v.real.toFixed(4) + '</span><span class="complex-imag">' + v.imag.toFixed(4) + 'i</span></div>' :
+                (typeof v === 'number' ? v.toFixed(4) : v)
+            ) + '</td>';
+        }
+        if (sliceData[0].length > colsToShow) {
+            html += '<td>...</td>';
+        }
+        html += '</tr>';
+    }
+
+    if (sliceData.length > rowsToShow) {
+        html += '<tr><th>...</th>';
+        for (var jc = 0; jc < colsToShow; jc++) {
+            html += '<td>...</td>';
+        }
+        if (sliceData[0].length > colsToShow) {
+            html += '<td>...</td>';
+        }
+        html += '</tr>';
+    }
+
+    html += '</table>';
+
+    if (sliceData.length > rowsToShow || (sliceData[0] && sliceData[0].length > colsToShow)) {
+        html += '<div style="margin-top: 16px; text-align: center; display: flex; gap: 12px; justify-content: center;">';
+        if (sliceData.length > rowsToShow) {
+            html += '<button class="load-more-btn" data-action="loadMoreRows2D">📥 Load more rows (' + rowsToShow + '/' + sliceData.length + ')</button>';
+        }
+        if (sliceData[0] && sliceData[0].length > colsToShow) {
+            html += '<button class="load-more-btn" data-action="loadMoreCols2D">📥 Load more columns (' + colsToShow + '/' + sliceData[0].length + ')</button>';
+        }
+        html += '</div>';
+    }
+
+    return html;
+}
+
+function renderStruct(name, value) {
+    var fields = Object.keys(value).filter(function(k) { return k !== '_type'; });
+
+    var html = '<div class="variable-preview">' +
+        '<div class="preview-header">' +
+        '<div class="preview-title">' + name + '</div>' +
+        '<div class="preview-meta">Struct · ' + fields.length + ' fields</div>' +
+        '</div>' +
+        '<div class="preview-content">' +
+        '<div class="struct-fields">';
+
+    fields.forEach(function(field) {
+        var fieldValue = value[field];
+        html += '<div class="struct-field">' +
+            '<div class="struct-field-name">' + field + '</div>' +
+            '<div class="struct-field-meta">' + formatType(fieldValue) + '</div>' +
+            '<div class="struct-field-value">' +
+            formatFieldValue(fieldValue) +
+            '</div>' +
+            '</div>';
+    });
+
+    html += '</div></div></div>';
+    return html;
+}
+
+function render2DArray(name, value) {
+    var stats = value.statistics || value.stats || {};
+
+    var html = '<div class="variable-preview">' +
+        '<div class="preview-header">' +
+        '<div class="preview-title">' + name + '</div>' +
+        '<div class="preview-meta">' + value.shape.join(' × ') + ' · ' + value.dtype + ' · ' + formatSize(value.size * 8) + '</div>' +
+        '</div>' +
+        '<div class="preview-content">';
+
+    html += renderStats(stats);
+
+    html += '<div class="view-tabs">' +
+        '<button class="view-tab ' + (state.currentDisplayMode === 'table' ? 'active' : '') + '" data-action="setDisplayMode" data-mode="table">📊 Table</button>' +
+        '<button class="view-tab ' + (state.currentDisplayMode === 'image' ? 'active' : '') + '" data-action="setDisplayMode" data-mode="image">🖼️ Image</button>' +
+        '</div>';
+
+    if (state.currentDisplayMode === 'image') {
+        if (value.complex) {
+            html += '<div class="view-mode-selector">' +
+                '<button class="' + (state.currentViewMode === 'magnitude' ? 'active' : '') + '" data-action="setViewMode" data-mode="magnitude">Magnitude</button>' +
+                '<button class="' + (state.currentViewMode === 'phase' ? 'active' : '') + '" data-action="setViewMode" data-mode="phase">Phase</button>' +
+                '<button class="' + (state.currentViewMode === 'real' ? 'active' : '') + '" data-action="setViewMode" data-mode="real">Real</button>' +
+                '<button class="' + (state.currentViewMode === 'imag' ? 'active' : '') + '" data-action="setViewMode" data-mode="imag">Imag</button>' +
+                '</div>';
+        }
+
+        html += '<div class="view-mode-selector">' +
+            '<label>Colormap:</label>' +
+            '<select data-action="setColormap">' +
+            '<option value="grayscale"' + (state.currentColormap === 'grayscale' ? ' selected' : '') + '>Grayscale</option>' +
+            '<option value="viridis"' + (state.currentColormap === 'viridis' ? ' selected' : '') + '>Viridis</option>' +
+            '<option value="inferno"' + (state.currentColormap === 'inferno' ? ' selected' : '') + '>Inferno</option>' +
+            '<option value="plasma"' + (state.currentColormap === 'plasma' ? ' selected' : '') + '>Plasma</option>' +
+            '</select>' +
+            '</div>';
+
+        html += '<div class="image-viewer">' +
+            '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
+            '</div>';
+
+        var sliceData = get2DSlice(value, state.currentViewMode);
+        scheduleCanvasRender(sliceData);
+    } else {
+        html += render2DTable(value);
+    }
+
+    html += '</div></div>';
+    return html;
+}
+
+function render3DArray(name, value) {
+    console.log('[DEBUG] render3DArray called:', name, 'shape:', value.shape);
+    var stats = value.statistics || value.stats || {};
+    var numSlices = value.shape[state.currentAxis];
+    var hasData = value.data && value.data.length > 0;
+
+    var html = '<div class="variable-preview">' +
+        '<div class="preview-header">' +
+        '<div class="preview-title">' + name + '</div>' +
+        '<div class="preview-meta">' + value.shape.join(' × ') + ' · ' + value.dtype + ' · ' + formatSize(value.size * 8) + '</div>' +
+        '</div>' +
+        '<div class="preview-content">';
+
+    html += renderStats(stats);
+
+    if (!hasData) {
+        html += '<p style="margin: 16px 0; color: var(--text-secondary); font-size: 13px;">Large tensor - using lazy loading. Select a slice below to visualize.</p>';
+    }
+
+    html += '<div class="view-tabs">' +
+        '<button class="view-tab ' + (state.currentDisplayMode === 'table' ? 'active' : '') + '" data-action="setDisplayMode" data-mode="table">📊 Table</button>' +
+        '<button class="view-tab ' + (state.currentDisplayMode === 'image' ? 'active' : '') + '" data-action="setDisplayMode" data-mode="image">🖼️ Image</button>' +
+        '</div>';
+
+    if (state.currentDisplayMode === 'image') {
+        html += '<div class="tensor-controls">' +
+            '<label>View Axis:</label>' +
+            '<select data-action="setAxis">' +
+            '<option value="0" ' + (state.currentAxis === 0 ? 'selected' : '') + '>Axis 0 (' + value.shape[0] + ')</option>' +
+            '<option value="1" ' + (state.currentAxis === 1 ? 'selected' : '') + '>Axis 1 (' + value.shape[1] + ')</option>' +
+            '<option value="2" ' + (state.currentAxis === 2 ? 'selected' : '') + '>Axis 2 (' + value.shape[2] + ')</option>' +
+            '</select>';
+
+        if (value.complex) {
+            html += '<label>View Mode:</label>' +
+                '<div class="view-mode-selector">' +
+                '<button class="' + (state.currentViewMode === 'magnitude' ? 'active' : '') + '" data-action="setViewMode" data-mode="magnitude">Magnitude</button>' +
+                '<button class="' + (state.currentViewMode === 'phase' ? 'active' : '') + '" data-action="setViewMode" data-mode="phase">Phase</button>' +
+                '<button class="' + (state.currentViewMode === 'real' ? 'active' : '') + '" data-action="setViewMode" data-mode="real">Real</button>' +
+                '<button class="' + (state.currentViewMode === 'imag' ? 'active' : '') + '" data-action="setViewMode" data-mode="imag">Imag</button>' +
+                '</div>';
+        }
+
+        html += '<label>Colormap:</label>' +
+            '<select data-action="setColormap">' +
+            '<option value="grayscale"' + (state.currentColormap === 'grayscale' ? ' selected' : '') + '>Grayscale</option>' +
+            '<option value="viridis"' + (state.currentColormap === 'viridis' ? ' selected' : '') + '>Viridis</option>' +
+            '<option value="inferno"' + (state.currentColormap === 'inferno' ? ' selected' : '') + '>Inferno</option>' +
+            '<option value="plasma"' + (state.currentColormap === 'plasma' ? ' selected' : '') + '>Plasma</option>' +
+            '</select>';
+
+        html += '<label>Slice:</label>' +
+            '<input type="range" id="sliceSlider" min="0" max="' + (numSlices - 1) + '" value="' + state.currentSlice + '" data-action="updateSlice">' +
+            '<span class="tensor-value" id="sliceValue">' + state.currentSlice + '</span>' +
+            '<span id="sliceLoadingIndicator" style="display:none; margin-left:12px; color: var(--text-accent); font-size:12px;"></span>' +
+            '</div>';
+
+        html += '<div class="image-viewer">' +
+            '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
+            '</div>';
+
+        if (hasData) {
+            var sliceData = get3DSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode);
+            scheduleCanvasRender(sliceData);
+        } else {
+            setTimeout(function() { requestSliceFromBackend(state.currentAxis, state.currentSlice); }, 100);
+        }
+    } else {
+        html += '<div class="tensor-controls">' +
+            '<label>View Axis:</label>' +
+            '<select data-action="setAxis">' +
+            '<option value="0" ' + (state.currentAxis === 0 ? 'selected' : '') + '>Axis 0 (' + value.shape[0] + ')</option>' +
+            '<option value="1" ' + (state.currentAxis === 1 ? 'selected' : '') + '>Axis 1 (' + value.shape[1] + ')</option>' +
+            '<option value="2" ' + (state.currentAxis === 2 ? 'selected' : '') + '>Axis 2 (' + value.shape[2] + ')</option>' +
+            '</select>';
+
+        html += '<label>Slice:</label>' +
+            '<input type="range" id="sliceSlider" min="0" max="' + (numSlices - 1) + '" value="' + state.currentSlice + '" data-action="updateSlice">' +
+            '<span class="tensor-value" id="sliceValue">' + state.currentSlice + '</span>' +
+            '</div>';
+
+        html += render3DTable(value);
+    }
+
+    html += '</div></div>';
+    return html;
+}
+
+function renderPreview(name, value) {
+    if (typeof value === 'number') {
+        return '<div class="variable-preview">' +
+            '<div class="preview-header">' +
+            '<div class="preview-title">' + name + '</div>' +
+            '<div class="preview-meta">Scalar</div>' +
+            '</div>' +
+            '<div class="preview-content">' +
+            '<div class="scalar-value">' + value + '</div>' +
+            '</div>' +
+            '</div>';
+    } else if (typeof value === 'string') {
+        return '<div class="variable-preview">' +
+            '<div class="preview-header">' +
+            '<div class="preview-title">' + name + '</div>' +
+            '<div class="preview-meta">String · ' + value.length + ' chars</div>' +
+            '</div>' +
+            '<div class="preview-content">' +
+            '<div style="padding: 20px; background: var(--bg-hover); border-radius: 12px; font-family: monospace;">"' + value + '"</div>' +
+            '</div>' +
+            '</div>';
+    } else if (value && value._type === 'complex') {
+        return '<div class="variable-preview">' +
+            '<div class="preview-header">' +
+            '<div class="preview-title">' + name + '</div>' +
+            '<div class="preview-meta">Complex Number</div>' +
+            '</div>' +
+            '<div class="preview-content">' +
+            '<div class="complex-view">' +
+            '<div class="complex-part">' +
+            '<div class="complex-label">Real</div>' +
+            '<div class="complex-value" style="color: var(--text-accent);">' + value.real + '</div>' +
+            '</div>' +
+            '<div class="complex-part">' +
+            '<div class="complex-label">Imaginary</div>' +
+            '<div class="complex-value" style="color: var(--text-error);">' + value.imag + 'i</div>' +
+            '</div>' +
+            '</div>' +
+            '</div>' +
+            '</div>';
+    } else if (value && value._type === 'ndarray') {
+        if (value.shape.length === 1) {
+            var stats = value.statistics || value.stats || {};
+            var html = '<div class="variable-preview">' +
+                '<div class="preview-header">' +
+                '<div class="preview-title">' + name + '</div>' +
+                '<div class="preview-meta">' + value.shape[0] + '×1 · ' + value.dtype + ' · ' + formatSize(value.size * 8) + '</div>' +
+                '</div>' +
+                '<div class="preview-content">';
+
+            html += renderStats(stats);
+            html += render1DArray(value);
+            html += '</div></div>';
+            return html;
+        } else if (value.shape.length === 2) {
+            return render2DArray(name, value);
+        } else if (value.shape.length === 3) {
+            return render3DArray(name, value);
+        } else {
+            return '<div class="variable-preview">' +
+                '<div class="preview-header">' +
+                '<div class="preview-title">' + name + '</div>' +
+                '<div class="preview-meta">' + formatType(value) + '</div>' +
+                '</div>' +
+                '<div class="preview-content">' +
+                '<pre style="background: var(--bg-primary); padding: 20px; border-radius: 12px; overflow: auto;">' + JSON.stringify(value, null, 2) + '</pre>' +
+                '</div>' +
+                '</div>';
+        }
+    } else if (value && typeof value === 'object' && (!value._type || value._type === 'struct')) {
+        return renderStruct(name, value);
+    } else {
+        return '<div class="variable-preview">' +
+            '<div class="preview-header">' +
+            '<div class="preview-title">' + name + '</div>' +
+            '<div class="preview-meta">' + formatType(value) + '</div>' +
+            '</div>' +
+            '<div class="preview-content">' +
+            '<pre style="background: var(--bg-primary); padding: 20px; border-radius: 12px; overflow: auto;">' + JSON.stringify(value, null, 2) + '</pre>' +
+            '</div>' +
+            '</div>';
+    }
+}
+
+function setAxis(axis) {
+    state.currentAxis = parseInt(axis);
+    state.currentSlice = 0;
+    state.currentLoadedSliceData = null;
+    state.dirty = true;
+    localStorage.setItem('matViewerAxis', axis);
+    localStorage.setItem('matViewerSlice', '0');
+
+    if (state.fullVariableData && state.currentVariableData) {
+        if (!state.fullVariableData.data && state.fullVariableData.shape.length >= 3) {
+            requestSliceFromBackend(state.currentAxis, state.currentSlice);
+        }
+        mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+
+        if (state.fullVariableData.data && state.currentDisplayMode === 'image') {
+            var sliceData = get3DSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
+            scheduleCanvasRender(sliceData);
+        }
+    }
+}
+
+function updateSlice(value) {
+    state.currentSlice = parseInt(value);
+    state.currentLoadedSliceData = null;
+    state.dirty = true;
+    localStorage.setItem('matViewerSlice', value);
+    var sliceValueEl = document.getElementById('sliceValue');
+    if (sliceValueEl) sliceValueEl.textContent = value;
+
+    if (state.fullVariableData && state.currentVariableData) {
+        if (!state.fullVariableData.data && state.fullVariableData.shape.length >= 3) {
+            requestSliceFromBackend(state.currentAxis, state.currentSlice);
+            return;
+        }
+
+        if (state.currentDisplayMode === 'image') {
+            var sliceData = get3DSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
+            scheduleCanvasRender(sliceData);
+        } else {
+            mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+        }
+    }
+}
+
+function setColormap(colormap) {
+    state.currentColormap = colormap;
+    state.dirty = true;
+    localStorage.setItem('matViewerColormap', colormap);
+    if (state.fullVariableData && state.currentVariableData) {
+        mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+    }
+}
+
+function handleMessage(event) {
+    var message = event.data;
+    console.log('[Webview] Received:', message.command);
+
+    if (message.command === 'fileLoaded') {
+        var matData = message.data;
+        console.log('[DEBUG] fileLoaded received:', 'path=', matData.file_path, 'vars=', Object.keys(matData.data || {}));
+
+        if (!matData.success || !matData.data) {
+            mainContent.innerHTML = '<div class="error">Failed to load file: ' + (matData.error || 'No data') + '</div>';
+            return;
+        }
+
+        state.currentVariableData = matData.data;
+        state.currentFilePath = matData.file_path;
+        fileInfo.textContent = (matData.version || 'v?') + ' · ' + (matData.file_path || '');
+
+        state.currentActiveVariable = null;
+        renderSidebar(matData.data);
+
+        var varNames = Object.keys(matData.data).sort();
+        var html = '<div class="success">';
+        html += '<div class="success-icon">✅</div>';
+        html += '<h2>File loaded successfully!</h2>';
+        html += '<p>Variables: ' + varNames.length + '</p>';
+        html += '<p style="margin-top: 24px;">';
+        html += '👆 Click a variable in the <span class="highlight">sidebar</span> (left)';
+        html += '</p>';
+        html += '<p style="opacity: 0.7;">to view its data here</p>';
+        html += '</div>';
+
+        mainContent.innerHTML = html;
+    } else if (message.command === 'sliceLoaded') {
+        console.log('[DEBUG] sliceLoaded received:', 'success=', message.success, 'varName=', message.variableName);
+        if (message.success && message.data && message.data._type === 'slice') {
+            console.log('[DEBUG] sliceLoaded: decoding base64, shape:', message.data.shape);
+            state.currentLoadedSliceData = decodeBase64Slice(message.data);
+            console.log('[DEBUG] sliceLoaded: decoded, rows=', state.currentLoadedSliceData ? state.currentLoadedSliceData.length : null);
+            scheduleCanvasRender(state.currentLoadedSliceData);
+
+            var loadingEl = document.getElementById('sliceLoadingIndicator');
+            if (loadingEl) loadingEl.style.display = 'none';
+        } else {
+            console.error('[Webview] Slice load failed:', message.error);
+            var loadingEl2 = document.getElementById('sliceLoadingIndicator');
+            if (loadingEl2) loadingEl2.textContent = 'Error loading slice: ' + (message.error || 'Unknown error');
+        }
+    } else if (message.command === 'showVariable') {
+        var name = message.variableName;
+        var value = message.variableValue;
+        console.log('[Webview] Showing variable:', name);
+
+        selectSidebarVariable(name);
+    } else if (message.command === 'error') {
+        mainContent.innerHTML = '<div class="error">Error: ' + message.error + '</div>';
+    }
+}
+
+function decodeBase64Slice(sliceInfo) {
+    if (!sliceInfo.encoded_data) return null;
+
+    var binaryString = atob(sliceInfo.encoded_data);
+    var bytes = new Uint8Array(binaryString.length);
+    for (var i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    var float32Array = new Float32Array(bytes.buffer);
+    var shape = sliceInfo.shape;
+    var rows = shape[0];
+    var cols = shape[1];
+
+    var result = [];
+    for (var ri = 0; ri < rows; ri++) {
+        var row = [];
+        for (var ci = 0; ci < cols; ci++) {
+            row.push(float32Array[ri * cols + ci]);
+        }
+        result.push(row);
+    }
+
+    return result;
+}
+
+function requestSliceFromBackend(ax, idx) {
+    console.log('[DEBUG] requestSliceFromBackend called:', 'ax=', ax, 'idx=', idx, 'filePath=', !!state.currentFilePath, 'varName=', state.currentActiveVariable);
+    if (!state.currentFilePath || !state.currentActiveVariable) {
+        console.log('[DEBUG] requestSliceFromBackend: ABORTED - missing filePath or varName');
+        return;
+    }
+
+    state.currentLoadedSliceData = null;
+
+    var loadingEl = document.getElementById('sliceLoadingIndicator');
+    if (loadingEl) {
+        loadingEl.style.display = 'inline';
+        loadingEl.textContent = 'Loading slice...';
+    }
+
+    vscode.postMessage({
+        command: 'loadSlice',
+        variableName: state.currentActiveVariable,
+        axis: ax,
+        index: idx
+    });
+}
+
+document.addEventListener('click', function(e) {
+    var target = e.target.closest('[data-action]');
+    if (!target) return;
+
+    var action = target.getAttribute('data-action');
+
+    switch (action) {
+        case 'loadMore1D':
+            state.currentShowCount1D += 50;
+            if (state.fullVariableData && state.currentVariableData) {
+                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+            }
+            break;
+        case 'loadMoreRows2D':
+            state.currentShowRows2D += 50;
+            if (state.fullVariableData && state.currentVariableData) {
+                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+            }
+            break;
+        case 'loadMoreCols2D':
+            state.currentShowCols2D += 20;
+            if (state.fullVariableData && state.currentVariableData) {
+                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+            }
+            break;
+        case 'setDisplayMode':
+            state.currentDisplayMode = target.getAttribute('data-mode');
+            state.dirty = true;
+            localStorage.setItem('matViewerDisplayMode', state.currentDisplayMode);
+            if (state.fullVariableData && state.currentVariableData) {
+                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+            }
+            break;
+        case 'setViewMode':
+            state.currentViewMode = target.getAttribute('data-mode');
+            state.dirty = true;
+            localStorage.setItem('matViewerViewMode', state.currentViewMode);
+            if (state.fullVariableData && state.currentVariableData) {
+                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+            }
+            break;
+    }
+});
+
+document.addEventListener('change', function(e) {
+    var target = e.target.closest('[data-action]');
+    if (!target) return;
+
+    var action = target.getAttribute('data-action');
+
+    switch (action) {
+        case 'setAxis':
+            setAxis(target.value);
+            break;
+        case 'setColormap':
+            setColormap(target.value);
+            break;
+    }
+});
+
+document.addEventListener('input', function(e) {
+    var target = e.target.closest('[data-action]');
+    if (!target) return;
+
+    var action = target.getAttribute('data-action');
+
+    switch (action) {
+        case 'updateSlice':
+            updateSlice(target.value);
+            break;
+    }
+});
+
+settingsBtn.addEventListener('click', openSettings);
+closeSettingsBtn.addEventListener('click', closeSettings);
+overlay.addEventListener('click', closeSettings);
+
+darkTheme.addEventListener('click', function() { applyTheme('dark'); });
+lightTheme.addEventListener('click', function() { applyTheme('light'); });
+autoTheme.addEventListener('click', function() { applyTheme('auto'); });
+
+sidebarToggle.addEventListener('click', toggleSidebar);
+headerToggle.addEventListener('click', toggleSidebar);
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+    if (state.currentTheme === 'auto') {
+        applyTheme('auto');
+    }
+});
+
+var savedTheme = localStorage.getItem('matViewerTheme') || 'auto';
+applyTheme(savedTheme);
+
+var savedSidebarCollapsed = localStorage.getItem('matViewerSidebarCollapsed');
+if (savedSidebarCollapsed === 'true') {
+    state.sidebarCollapsed = true;
+    sidebar.classList.add('collapsed');
+    headerToggle.classList.add('visible');
+}
+
+window.addEventListener('message', handleMessage);
+console.log('[Webview] Ready');
+`;
+}
