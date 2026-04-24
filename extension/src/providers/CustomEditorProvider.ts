@@ -43,7 +43,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             ]
         };
 
-        const version = this.context.extension.packageJSON.version || '1.1.1';
+        const version = this.context.extension.packageJSON.version || '1.1.2';
         webviewPanel.webview.html = getHtml(version);
         console.log('[MatrixSpy] HTML set');
 

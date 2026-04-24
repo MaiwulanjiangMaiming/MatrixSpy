@@ -2,7 +2,7 @@ node_modules/
 out/
 dist/
 *.vsix
-.vscode-test/
+.vscode/
 .DS_Store
 Thumbs.db
 *.log

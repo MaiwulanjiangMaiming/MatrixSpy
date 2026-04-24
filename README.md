@@ -177,9 +177,24 @@ MIT License
 
 ## Changelog
 
+### v1.1.2 (2026-04-24)
+
+**🐛 Bug Fixes**
+- Fixed v7.3 (HDF5) MAT file parsing failure - now uses h5py directly instead of mat73
+- Fixed NaN/Inf JSON serialization errors in edge case files
+- Fixed HDF5 version detection for binary file headers
+- Fixed `_get_stats` returning NaN values that broke JSON output
+
+**🧹 Cleanup**
+- Modernized webview architecture with modular CSS/JS/HTML
+- Removed redundant TreeDataProvider and unused webviewMessageHelper
+- Added colormap support, histograms, and sparkline visualizations
+
 ### v1.1.1 (2026-04-20)
 
-- Bug fixes
+- Welcome page with dependency check
+- Auto-detect Python and required packages
+- Simplified project structure
 
 ### v1.1.0 (2026-04-07)
 

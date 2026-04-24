@@ -98,9 +98,19 @@ MIT License
 
 ## Changelog
 
+### v1.1.2 (2026-04-24)
+
+- Fixed v7.3 (HDF5) MAT file parsing
+- Fixed NaN/Inf JSON serialization errors
+- Fixed HDF5 binary header detection
+- Modernized webview architecture
+- Added colormap, histogram, sparkline visualizations
+
 ### v1.1.1 (2026-04-20)
 
-- Bug fixes
+- Welcome page with dependency check
+- Auto-detect Python and required packages
+- Simplified project structure
 
 ### v1.1.0 (2026-04-07)
 

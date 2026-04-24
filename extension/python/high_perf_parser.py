@@ -26,31 +26,35 @@ class HighPerfMatParser:
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """Parse MAT file"""
         try:
-            # Get metadata first
             metadata = self.get_metadata(file_path)
             version = metadata['version']
-            
-            # Only load small data, return None for large data
+
+            result = {}
             if version == 'v7.3':
-                data = mat73.loadmat(file_path, use_attrdict=True)
+                with h5py.File(file_path, 'r') as f:
+                    for key in f.keys():
+                        if key.startswith('#'):
+                            continue
+                        try:
+                            item = f[key]
+                            if isinstance(item, h5py.Dataset):
+                                result[key] = self._process_hdf5_dataset(item)
+                            elif isinstance(item, h5py.Group):
+                                result[key] = self._process_hdf5_group(item)
+                        except Exception as e:
+                            print(f"Error processing variable '{key}': {e}", file=sys.stderr)
+                            result[key] = {'_type': 'error', 'error': str(e)}
             else:
                 data = scipy.io.loadmat(file_path, simplify_cells=True,
                                        struct_as_record=False, squeeze_me=True)
-            
-            result = {}
-            for key, value in data.items():
-                if not key.startswith('__') and not key.startswith('#'):
-                    try:
-                        result[key] = self._process_value(value, is_root=True)
-                    except Exception as e:
-                        import traceback
-                        print(f"Error processing variable '{key}': {e}", file=sys.stderr)
-                        traceback.print_exc()
-                        result[key] = {
-                            '_type': 'error',
-                            'error': str(e)
-                        }
-            
+                for key, value in data.items():
+                    if not key.startswith('__') and not key.startswith('#'):
+                        try:
+                            result[key] = self._process_value(value, is_root=True)
+                        except Exception as e:
+                            print(f"Error processing variable '{key}': {e}", file=sys.stderr)
+                            result[key] = {'_type': 'error', 'error': str(e)}
+
             return {
                 'success': True,
                 'version': version,
@@ -220,13 +224,28 @@ class HighPerfMatParser:
                 'variable_name': variable_name
             }
     
+    def _process_hdf5_dataset(self, item: h5py.Dataset) -> Dict[str, Any]:
+        """Process HDF5 dataset"""
+        data = np.array(item)
+        return self._process_array(data)
+
+    def _process_hdf5_group(self, item: h5py.Group) -> Dict[str, Any]:
+        """Process HDF5 group (struct-like)"""
+        result = {'_type': 'struct'}
+        for key in item.keys():
+            child = item[key]
+            if isinstance(child, h5py.Dataset):
+                result[key] = self._process_hdf5_dataset(child)
+            elif isinstance(child, h5py.Group):
+                result[key] = self._process_hdf5_group(child)
+        return result
+
     def _process_value(self, value: Any, is_root: bool = False,
                       force_load: bool = False) -> Any:
         """Process value (smart loading)"""
-        # Limit deep recursion for large structures
         if isinstance(value, (dict, list, tuple)) and not force_load:
             size = self._estimate_size(value)
-            if size > 10 * 1024 * 1024:  # 10MB
+            if size > 10 * 1024 * 1024:
                 return {
                     '_type': 'large_data',
                     'type': type(value).__name__,
@@ -239,7 +258,10 @@ class HighPerfMatParser:
         elif isinstance(value, (np.integer, np.int64, np.int32)):
             return int(value)
         elif isinstance(value, (np.floating, np.float64, np.float32)):
-            return float(value)
+            val = float(value)
+            if np.isnan(val) or np.isinf(val):
+                return None
+            return val
         elif isinstance(value, (complex, np.complex128, np.complex64)):
             return {
                 'real': float(value.real),
@@ -248,6 +270,11 @@ class HighPerfMatParser:
             }
         elif isinstance(value, np.bool_):
             return bool(value)
+        elif isinstance(value, bytes):
+            try:
+                return value.decode('utf-8')
+            except:
+                return value.decode('latin-1', errors='replace')
         elif isinstance(value, dict):
             return {
                 '_type': 'struct',
@@ -258,7 +285,6 @@ class HighPerfMatParser:
             return [self._process_value(v, is_root=False, force_load=force_load)
                    for v in value]
         elif hasattr(value, '_fieldnames'):
-            # MATLAB struct
             result = {'_type': 'struct'}
             for field in value._fieldnames:
                 result[field] = self._process_value(
@@ -267,6 +293,10 @@ class HighPerfMatParser:
                     force_load=force_load
                 )
             return result
+        elif isinstance(value, float):
+            if np.isnan(value) or np.isinf(value):
+                return None
+            return value
         else:
             return value
     
@@ -302,9 +332,18 @@ class HighPerfMatParser:
         """Convert array to JSON serializable format (preserve original dimensions)"""
         if arr.size == 0:
             return []
-        
-        # Preserve original multi-dimensional structure
-        return arr.tolist()
+
+        data = arr.tolist()
+        return self._replace_nan_inf(data)
+
+    def _replace_nan_inf(self, data):
+        """Recursively replace NaN and Inf with None"""
+        if isinstance(data, list):
+            return [self._replace_nan_inf(item) for item in data]
+        elif isinstance(data, float):
+            if np.isnan(data) or np.isinf(data):
+                return None
+        return data
     
     def _convert_complex_array(self, arr: np.ndarray) -> Any:
         """Convert complex array (preserve original dimensions)"""
@@ -393,6 +432,12 @@ class HighPerfMatParser:
                 'truncated': True
             }
     
+    def _safe_float(self, val):
+        """Convert value to float, handling NaN/Inf"""
+        if isinstance(val, float) and (np.isnan(val) or np.isinf(val)):
+            return None
+        return float(val)
+
     def _get_stats(self, arr: np.ndarray) -> Dict[str, Any]:
         """Get statistics"""
         try:
@@ -405,20 +450,21 @@ class HighPerfMatParser:
                     'std': None,
                     'note': 'Non-numeric array'
                 }
-            
+
             if np.iscomplexobj(arr):
+                abs_arr = np.abs(arr)
                 return {
-                    'min': float(np.min(np.abs(arr))),
-                    'max': float(np.max(np.abs(arr))),
-                    'mean': float(np.mean(np.abs(arr))),
-                    'std': float(np.std(np.abs(arr)))
+                    'min': self._safe_float(np.min(abs_arr)),
+                    'max': self._safe_float(np.max(abs_arr)),
+                    'mean': self._safe_float(np.mean(abs_arr)),
+                    'std': self._safe_float(np.std(abs_arr))
                 }
             else:
                 return {
-                    'min': float(np.min(arr)),
-                    'max': float(np.max(arr)),
-                    'mean': float(np.mean(arr)),
-                    'std': float(np.std(arr))
+                    'min': self._safe_float(np.min(arr)),
+                    'max': self._safe_float(np.max(arr)),
+                    'mean': self._safe_float(np.mean(arr)),
+                    'std': self._safe_float(np.std(arr))
                 }
         except Exception as e:
             return {
@@ -433,8 +479,11 @@ class HighPerfMatParser:
         """Detect file version"""
         with open(file_path, 'rb') as f:
             header = f.read(128)
+
+            if header[:8] == b'\x89HDF\r\n\x1a\n':
+                return 'v7.3'
+
             header_str = header.decode('ascii', errors='ignore')
-            
             if 'MATLAB 7.3 MAT-file' in header_str:
                 return 'v7.3'
             elif 'MATLAB 7.0 MAT-file' in header_str:

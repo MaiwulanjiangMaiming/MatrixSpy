@@ -71,9 +71,12 @@ class ScipyParser:
         if isinstance(value, np.ndarray):
             return self._process_array(value)
         elif isinstance(value, (np.integer, np.floating)):
-            return value.item()
+            val = value.item() if hasattr(value, 'item') else float(value)
+            if isinstance(val, float) and (np.isnan(val) or np.isinf(val)):
+                return None
+            return val
         elif isinstance(value, np.complex128):
-            return {'real': value.real, 'imag': value.imag, '_type': 'complex'}
+            return {'real': float(value.real), 'imag': float(value.imag), '_type': 'complex'}
         elif isinstance(value, np.bool_):
             return bool(value)
         elif isinstance(value, dict):
@@ -85,6 +88,8 @@ class ScipyParser:
             return [self._process_value(v) for v in value]
         elif hasattr(value, '__dict__'):
             return self._process_struct(value)
+        elif isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+            return None
         else:
             return value
     
@@ -96,16 +101,26 @@ class ScipyParser:
             'dtype': str(arr.dtype),
             'size': int(arr.size)
         }
-        
+
         if np.iscomplexobj(arr):
             result['complex'] = True
             result['data'] = self._convert_complex_array(arr)
             result['statistics'] = self._get_stats(arr)
         else:
-            result['data'] = arr.tolist()
+            data = arr.tolist()
+            result['data'] = self._replace_nan_inf(data)
             result['statistics'] = self._get_stats(arr)
-        
+
         return result
+
+    def _replace_nan_inf(self, data):
+        """Recursively replace NaN and Inf with None"""
+        if isinstance(data, list):
+            return [self._replace_nan_inf(item) for item in data]
+        elif isinstance(data, float):
+            if np.isnan(data) or np.isinf(data):
+                return None
+        return data
     
     def _convert_complex_array(self, arr: np.ndarray) -> Any:
         """Convert complex array (preserve original dimensions)"""

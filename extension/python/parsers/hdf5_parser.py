@@ -68,15 +68,25 @@ class HDF5Parser:
         if isinstance(value, np.ndarray):
             return self._process_array(value)
         elif isinstance(value, (np.integer, np.floating)):
-            return value.item()
+            val = value.item()
+            if isinstance(val, float) and (np.isnan(val) or np.isinf(val)):
+                return None
+            return val
         elif isinstance(value, np.complex128):
-            return {'real': value.real, 'imag': value.imag, '_type': 'complex'}
+            return {'real': float(value.real), 'imag': float(value.imag), '_type': 'complex'}
         elif isinstance(value, np.bool_):
             return bool(value)
+        elif isinstance(value, bytes):
+            try:
+                return value.decode('utf-8')
+            except:
+                return value.decode('latin-1', errors='replace')
         elif isinstance(value, dict):
             return {k: self._process_value(v) for k, v in value.items()}
         elif isinstance(value, (list, tuple)):
             return [self._process_value(v) for v in value]
+        elif isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+            return None
         else:
             return value
     
@@ -86,15 +96,24 @@ class HDF5Parser:
             '_type': 'ndarray',
             'shape': list(arr.shape),
             'dtype': str(arr.dtype),
-            'data': arr.tolist()
+            'data': self._replace_nan_inf(arr.tolist())
         }
-        
+
         if np.iscomplexobj(arr):
             result['complex'] = True
-            result['magnitude'] = np.abs(arr).tolist()
-            result['phase'] = np.angle(arr).tolist()
-        
+            result['magnitude'] = self._replace_nan_inf(np.abs(arr).tolist())
+            result['phase'] = self._replace_nan_inf(np.angle(arr).tolist())
+
         return result
+
+    def _replace_nan_inf(self, data):
+        """Recursively replace NaN and Inf with None"""
+        if isinstance(data, list):
+            return [self._replace_nan_inf(item) for item in data]
+        elif isinstance(data, float):
+            if np.isnan(data) or np.isinf(data):
+                return None
+        return data
     
     def _get_hdf5_metadata(self, item) -> Dict[str, Any]:
         """Get metadata for HDF5 item"""

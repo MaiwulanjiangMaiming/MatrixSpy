@@ -28,8 +28,11 @@ class MatParser:
         """Detect MAT file version"""
         with open(file_path, 'rb') as f:
             header = f.read(128)
+
+            if header[:8] == b'\x89HDF\r\n\x1a\n':
+                return 'v7.3'
+
             header_str = header.decode('ascii', errors='ignore')
-            
             if 'MATLAB 7.3 MAT-file' in header_str:
                 return 'v7.3'
             elif 'MATLAB 7.0 MAT-file' in header_str:
