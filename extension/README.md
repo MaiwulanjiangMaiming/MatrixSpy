@@ -1,5 +1,14 @@
 # MatrixSpy
 
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=MaiwulanjiangMaiming.matrixspy">
+    <img src="https://img.shields.io/badge/VS%20Code-Marketplace-blue?logo=visual-studio-code" alt="VS Code Marketplace"/>
+  </a>
+  <a href="https://open-vsx.org/extension/maiwulanjiangmaiming/matrixspy">
+    <img src="https://img.shields.io/open-vsx/v/maiwulanjiangmaiming/matrixspy?label=Open%20VSX&style=flat&color=2C2255&logo=open-vsx" alt="Open VSX Version"/>
+  </a>
+</p>
+
 A powerful VS Code extension for exploring, visualizing, and exporting MATLAB .mat files with image mat data support and beautiful matrix visualization.
 
 ## Features
