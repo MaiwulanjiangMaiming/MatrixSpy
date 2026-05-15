@@ -8,14 +8,16 @@ export const COMMANDS = {
     EXPORT_JSON: 'matrixspy.exportJSON',
     REFRESH_VARIABLES: 'matrixspy.refreshVariables',
     INSTALL_DEPS: 'matrixspy.installDeps',
-    OPEN_SAMPLE: 'matrixspy.openSample',
-    SHOW_VARIABLE: 'matrixspy.showVariable'
+    SHOW_VARIABLE: 'matrixspy.showVariable',
+    TEST_ENVIRONMENT: 'matrixspy.testEnvironment',
+    SHOW_SETUP_WIZARD: 'matrixspy.showSetupWizard',
+    SHOW_WELCOME: 'matrixspy.showWelcome',
+    RESET_WELCOME: 'matrixspy.resetWelcome'
 } as const;
 
 export const CONFIG_KEYS = {
     PYTHON_PATH: 'matrixspy.pythonPath',
-    MAX_DATA_SIZE: 'matrixspy.maxDataSize',
-    ENABLE_IMAGE: 'matrixspy.enableImage'
+    MAX_DATA_SIZE: 'matrixspy.maxDataSize'
 } as const;
 
 export const STORAGE_KEYS = {
@@ -27,12 +29,13 @@ export const STORAGE_KEYS = {
     SLICE: 'matViewerSlice',
     SHOW_COUNT_1D: 'matViewerShowCount1D',
     SHOW_ROWS_2D: 'matViewerShowRows2D',
-    SHOW_COLS_2D: 'matViewerShowCols2D'
+    SHOW_COLS_2D: 'matViewerShowCols2D',
+    COLORMAP: 'matViewerColormap'
 } as const;
 
 export const PYTHON_SCRIPT = 'high_perf_parser.py';
-export const PYTHON_TIMEOUT = 30000; // 30 seconds
-export const MAX_FILE_SIZE_MB = 100; // 100MB
+export const PYTHON_TIMEOUT = 60000;
+export const MAX_FILE_SIZE_MB = 100;
 
 export const DATA_TYPES = {
     NDARRAY: 'ndarray',
@@ -40,8 +43,8 @@ export const DATA_TYPES = {
     COMPLEX: 'complex',
     SCALAR: 'scalar',
     STRING: 'string',
-    LARGE_DATA: 'large_data',
-    LARGE_ARRAY: 'large_array'
+    SLICE: 'slice',
+    ERROR: 'error'
 } as const;
 
 export const VIEW_MODES = {
@@ -55,5 +58,3 @@ export const COMPLEX_VIEW_MODES = {
     REAL: 'real',
     IMAG: 'imag'
 } as const;
-
-export const LOG_PREFIX = '[MatrixSpy]';

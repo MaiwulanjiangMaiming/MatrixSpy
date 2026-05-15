@@ -1,26 +1,50 @@
 import * as vscode from 'vscode';
-import { PythonBridge } from '../ipc/PythonBridge';
+import { getFileDataCache } from '../extension';
+import { MatFileData, MatVariable } from '../types';
 
-export async function exportCSVCommand(pythonBridge: PythonBridge) {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-        vscode.window.showErrorMessage('No active MAT file');
+function getActiveMatFilePath(): string | null {
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    if (tab?.input instanceof vscode.TabInputCustom) {
+        if (tab.input.viewType === 'matrixspy.matFile') {
+            return tab.input.uri.fsPath;
+        }
+    }
+    return null;
+}
+
+function getActiveFileData(): { filePath: string; data: MatFileData } | null {
+    const filePath = getActiveMatFilePath();
+    if (!filePath) {
+        return null;
+    }
+
+    const cache = getFileDataCache();
+    const data = cache.get(filePath);
+    if (data) {
+        return { filePath, data };
+    }
+
+    return null;
+}
+
+export async function exportCSVCommand() {
+    const activeFile = getActiveFileData();
+    if (!activeFile) {
+        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
         return;
     }
 
-    const filePath = editor.document.uri.fsPath;
-    
+    const { filePath, data } = activeFile;
+
     try {
-        const result = await pythonBridge.parseFile(filePath);
-        
-        if (!result.success || !result.data) {
-            vscode.window.showErrorMessage(`Failed to parse MAT file: ${result.error}`);
+        const variables = Object.keys(data);
+        if (variables.length === 0) {
+            vscode.window.showWarningMessage('No variables found in the MAT file.');
             return;
         }
 
-        const variables = Object.keys(result.data);
         const selectedVar = await vscode.window.showQuickPick(variables, {
-            placeHolder: 'Select variable to export'
+            placeHolder: 'Select variable to export as CSV'
         });
 
         if (!selectedVar) {
@@ -38,9 +62,14 @@ export async function exportCSVCommand(pythonBridge: PythonBridge) {
             return;
         }
 
-        const data = result.data[selectedVar];
-        const csvContent = convertToCSV(data);
-        
+        const varData = data[selectedVar];
+        const csvContent = convertToCSV(varData);
+
+        if (!csvContent) {
+            vscode.window.showWarningMessage(`Variable "${selectedVar}" cannot be exported as CSV. Only numeric arrays are supported.`);
+            return;
+        }
+
         await vscode.workspace.fs.writeFile(saveUri, Buffer.from(csvContent, 'utf-8'));
         vscode.window.showInformationMessage(`Exported ${selectedVar} to ${saveUri.fsPath}`);
     } catch (error) {
@@ -48,23 +77,16 @@ export async function exportCSVCommand(pythonBridge: PythonBridge) {
     }
 }
 
-export async function exportJSONCommand(pythonBridge: PythonBridge) {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-        vscode.window.showErrorMessage('No active MAT file');
+export async function exportJSONCommand() {
+    const activeFile = getActiveFileData();
+    if (!activeFile) {
+        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
         return;
     }
 
-    const filePath = editor.document.uri.fsPath;
-    
-    try {
-        const result = await pythonBridge.parseFile(filePath);
-        
-        if (!result.success || !result.data) {
-            vscode.window.showErrorMessage(`Failed to parse MAT file: ${result.error}`);
-            return;
-        }
+    const { filePath, data } = activeFile;
 
+    try {
         const saveUri = await vscode.window.showSaveDialog({
             filters: {
                 'JSON Files': ['json']
@@ -76,7 +98,7 @@ export async function exportJSONCommand(pythonBridge: PythonBridge) {
             return;
         }
 
-        const jsonContent = JSON.stringify(result.data, null, 2);
+        const jsonContent = JSON.stringify(data, null, 2);
         await vscode.workspace.fs.writeFile(saveUri, Buffer.from(jsonContent, 'utf-8'));
         vscode.window.showInformationMessage(`Exported to ${saveUri.fsPath}`);
     } catch (error) {
@@ -84,7 +106,7 @@ export async function exportJSONCommand(pythonBridge: PythonBridge) {
     }
 }
 
-function convertToCSV(data: any): string {
+function convertToCSV(data: MatVariable): string {
     if (!data || data._type !== 'ndarray' || !data.data) {
         return '';
     }
@@ -99,8 +121,30 @@ function convertToCSV(data: any): string {
     }
 
     if (!Array.isArray(array[0])) {
-        return array.join('\n');
+        return array.map((v: any) => formatCSVValue(v)).join('\n');
     }
 
-    return array.map(row => row.join(',')).join('\n');
+    return array.map(row => {
+        if (Array.isArray(row)) {
+            return row.map((v: any) => formatCSVValue(v)).join(',');
+        }
+        return formatCSVValue(row);
+    }).join('\n');
+}
+
+function formatCSVValue(v: any): string {
+    if (v === null || v === undefined) {
+        return '';
+    }
+    if (typeof v === 'number') {
+        return String(v);
+    }
+    if (v && v._type === 'complex') {
+        return `${v.real}${v.imag >= 0 ? '+' : ''}${v.imag}i`;
+    }
+    const str = String(v);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
 }

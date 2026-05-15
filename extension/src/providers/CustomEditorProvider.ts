@@ -10,10 +10,25 @@ import { updateTreeData, updateCurrentWebviewPanel, cacheFileData } from '../ext
 import { getHtml } from '../webview/html';
 
 export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvider {
+    private messageListenerDisposable: vscode.Disposable | null = null;
+
     constructor(
         private readonly context: vscode.ExtensionContext,
         private readonly pythonBridge: PythonBridge
-    ) {}
+    ) {
+        this.context.subscriptions.push(this);
+    }
+
+    public dispose(): void {
+        this.removeMessageListener();
+    }
+
+    private removeMessageListener(): void {
+        if (this.messageListenerDisposable) {
+            this.messageListenerDisposable.dispose();
+            this.messageListenerDisposable = null;
+        }
+    }
 
     public async openCustomDocument(
         uri: vscode.Uri,
@@ -31,8 +46,6 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        console.log('[MatrixSpy] resolveCustomEditor called');
-
         updateCurrentWebviewPanel(webviewPanel);
 
         webviewPanel.webview.options = {
@@ -43,102 +56,91 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             ]
         };
 
-        const version = this.context.extension.packageJSON.version || '1.1.2';
+        const version = this.context.extension.packageJSON.version || '1.2.0';
         webviewPanel.webview.html = getHtml(version);
-        console.log('[MatrixSpy] HTML set');
 
         webviewPanel.webview.postMessage({
             command: 'loadingStart',
             message: 'Loading file...'
         });
 
-        setTimeout(async () => {
-            try {
-                await this.handleLoadFile(document.uri.fsPath, webviewPanel);
-            } catch (error) {
-                webviewPanel.webview.postMessage({
-                    command: 'loadingEnd'
-                });
-            }
-        }, 0);
+        this.removeMessageListener();
+        this.messageListenerDisposable = webviewPanel.webview.onDidReceiveMessage(
+            this.createMessageHandler(document.uri.fsPath, webviewPanel)
+        );
 
         webviewPanel.onDidDispose(() => {
+            this.removeMessageListener();
             updateCurrentWebviewPanel(null);
         });
+
+        await this.handleLoadFile(document.uri.fsPath, webviewPanel);
     }
 
-    private async handleLoadFile(filePath: string, webviewPanel: vscode.WebviewPanel) {
-        const retryLoad = async () => {
-            try {
-                console.log('[MatrixSpy] Loading file:', filePath);
-                const result = await this.pythonBridge.parseFile(filePath);
-                console.log('[MatrixSpy] Parsed, sending to webview');
+    private createMessageHandler(filePath: string, webviewPanel: vscode.WebviewPanel) {
+        return async (message: { command?: string; variableName?: string; axis?: number; index?: number; url?: string }) => {
+            if (message.command === 'loadSlice') {
+                try {
+                    const sliceResult = await this.pythonBridge.loadSlice(
+                        filePath,
+                        message.variableName!,
+                        message.axis!,
+                        message.index!
+                    );
 
-                if (result.success && result.data) {
-                    cacheFileData(filePath, result.data);
-                    updateTreeData(result.data);
+                    webviewPanel.webview.postMessage({
+                        command: 'sliceLoaded',
+                        variableName: message.variableName,
+                        success: sliceResult.success,
+                        data: sliceResult.success ? sliceResult.data : null,
+                        error: sliceResult.success ? null : sliceResult.error
+                    });
+                } catch (error) {
+                    webviewPanel.webview.postMessage({
+                        command: 'sliceLoaded',
+                        variableName: message.variableName,
+                        success: false,
+                        data: null,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
                 }
-
-                webviewPanel.webview.postMessage({
-                    command: 'fileLoaded',
-                    data: result
-                });
-
-                console.log('[MatrixSpy] Message sent to webview');
-
-                webviewPanel.webview.onDidReceiveMessage(async (message) => {
-                    console.log('[MatrixSpy] Received message:', message.command);
-
-                    if (message.command === 'loadSlice') {
-                        console.log('[MatrixSpy] Loading slice:', message.variableName, 'axis:', message.axis, 'index:', message.index);
-                        try {
-                            const sliceResult = await this.pythonBridge.loadSlice(
-                                filePath,
-                                message.variableName,
-                                message.axis,
-                                message.index
-                            );
-
-                            webviewPanel.webview.postMessage({
-                                command: 'sliceLoaded',
-                                variableName: message.variableName,
-                                success: sliceResult.success,
-                                data: sliceResult.success ? sliceResult.data : null,
-                                error: sliceResult.success ? null : sliceResult.error
-                            });
-                        } catch (error) {
-                            console.error('[MatrixSpy] Slice load error:', error);
-                            webviewPanel.webview.postMessage({
-                                command: 'sliceLoaded',
-                                variableName: message.variableName,
-                                success: false,
-                                data: null,
-                                error: error instanceof Error ? error.message : String(error)
-                            });
-                        }
-                    } else {
-                        console.warn('[MatrixSpy] Unknown command:', message.command);
-                    }
-                });
-
-            } catch (error) {
-                console.error('[MatrixSpy] Error:', error);
-
-                const errorMsg = error instanceof Error ? error.message : String(error);
-                webviewPanel.webview.postMessage({
-                    command: 'error',
-                    error: errorMsg,
-                    retryable: error instanceof Error && error.message.includes('timeout')
-                });
-
-                if (errorMsg.includes('timeout')) {
-                    setTimeout(() => {
-                        retryLoad();
-                    }, 2000);
-                }
+            } else if (message.command === 'openExternal' && message.url) {
+                vscode.env.openExternal(vscode.Uri.parse(message.url));
             }
         };
+    }
 
-        retryLoad();
+    private async handleLoadFile(filePath: string, webviewPanel: vscode.WebviewPanel, retryCount: number = 0) {
+        const MAX_RETRIES = 3;
+
+        try {
+            const result = await this.pythonBridge.parseFile(filePath);
+
+            if (result.success && result.data) {
+                cacheFileData(filePath, result.data);
+                updateTreeData(result.data);
+            }
+
+            webviewPanel.webview.postMessage({
+                command: 'fileLoaded',
+                data: result
+            });
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            const isRetryable = (error instanceof Error && error.message.includes('timeout')) ||
+                (error && typeof error === 'object' && 'retryable' in error && (error as any).retryable);
+
+            webviewPanel.webview.postMessage({
+                command: 'error',
+                error: errorMsg,
+                retryable: isRetryable && retryCount < MAX_RETRIES
+            });
+
+            if (isRetryable && retryCount < MAX_RETRIES) {
+                const delay = 2000 * Math.pow(2, retryCount);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                await this.handleLoadFile(filePath, webviewPanel, retryCount + 1);
+            }
+        }
     }
 }

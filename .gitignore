@@ -7,3 +7,5 @@ dist/
 Thumbs.db
 *.log
 .trae/
+.claude/
+test_files/

@@ -45,7 +45,7 @@ body {
 }
 .app {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     height: 100vh;
 }
 .header {
@@ -295,14 +295,68 @@ body {
     padding: 24px;
     border-radius: 12px;
     text-align: center;
+    overflow: auto;
+    max-height: 600px;
+    position: relative;
 }
 .image-canvas {
-    width: 400px;
-    height: 400px;
     image-rendering: pixelated;
     background: #000;
     border-radius: 8px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    cursor: crosshair;
+    transition: width 0.15s ease, height 0.15s ease;
+}
+.canvas-zoom-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 8px 16px;
+    background: var(--bg-hover);
+    border-radius: 8px;
+    width: fit-content;
+    margin-left: auto;
+    margin-right: auto;
+}
+.canvas-zoom-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    line-height: 1;
+    padding: 0;
+}
+.canvas-zoom-btn:hover {
+    background: var(--accent-blue);
+    color: white;
+}
+.canvas-zoom-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+.canvas-zoom-level {
+    font-size: 13px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    color: var(--text-secondary);
+    min-width: 60px;
+    text-align: center;
+}
+.canvas-dimensions {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
 }
 .view-mode-selector {
     margin-bottom: 16px;
@@ -601,11 +655,6 @@ body {
 .overlay.visible {
     opacity: 1;
     visibility: visible;
-}
-.app {
-    display: flex;
-    flex-direction: row;
-    height: 100vh;
 }
 .sidebar {
     width: 280px;

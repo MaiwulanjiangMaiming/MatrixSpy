@@ -1,82 +1,88 @@
-import * as vscode from 'vscode';
-
-export interface MatrixSpyError extends Error {
-    code?: string;
-    details?: any;
-    retryable?: boolean;
-}
-
 export const ERROR_CODES = {
+    UNKNOWN: 'UNKNOWN',
     PYTHON_NOT_FOUND: 'PYTHON_NOT_FOUND',
     DEPENDENCY_MISSING: 'DEPENDENCY_MISSING',
     FILE_NOT_FOUND: 'FILE_NOT_FOUND',
     FILE_TOO_LARGE: 'FILE_TOO_LARGE',
     INVALID_FILE_FORMAT: 'INVALID_FILE_FORMAT',
-    TIMEOUT: 'TIMEOUT',
     MEMORY_ERROR: 'MEMORY_ERROR',
-    NETWORK_ERROR: 'NETWORK_ERROR',
-    UNKNOWN: 'UNKNOWN'
+    TIMEOUT: 'TIMEOUT',
+    PARSE_ERROR: 'PARSE_ERROR',
+    SLICE_ERROR: 'SLICE_ERROR'
 } as const;
+
+export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];
+
+export interface AppError {
+    message: string;
+    code: ErrorCode;
+    details?: any;
+    retryable: boolean;
+    timestamp: number;
+}
 
 export function createError(
     message: string,
-    code: string = ERROR_CODES.UNKNOWN,
+    code: ErrorCode = ERROR_CODES.UNKNOWN,
     details?: any,
     retryable: boolean = false
-): MatrixSpyError {
-    const error = new Error(message) as MatrixSpyError;
-    error.code = code;
-    error.details = details;
-    error.retryable = retryable;
-    error.name = 'MatrixSpyError';
-    return error;
+): AppError {
+    return {
+        message,
+        code,
+        details,
+        retryable,
+        timestamp: Date.now()
+    };
 }
 
-export function isMatrixSpyError(error: any): error is MatrixSpyError {
-    return error && error.name === 'MatrixSpyError';
-}
-
-export function showError(error: Error, details?: string): void {
-    const message = details
-        ? `${error.message}\n\nDetails: ${details}`
-        : error.message;
-
-    if (isMatrixSpyError(error) && error.retryable) {
-        vscode.window.showErrorMessage(message, 'Retry', 'Dismiss').then(selection => {
-            if (selection === 'Retry') {
-                // This would be handled by the caller
-                console.log('User chose to retry');
-            }
-        });
-    } else {
-        vscode.window.showErrorMessage(message);
+export function isRetryable(error: unknown): boolean {
+    if (error && typeof error === 'object' && 'retryable' in error) {
+        return (error as AppError).retryable === true;
     }
+    return false;
+}
+
+export function getErrorCode(error: unknown): ErrorCode {
+    if (error && typeof error === 'object' && 'code' in error) {
+        return (error as AppError).code;
+    }
+    return ERROR_CODES.UNKNOWN;
+}
+
+export function getUserMessage(error: unknown): string {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    if (error && typeof error === 'object' && 'message' in error) {
+        return String((error as AppError).message);
+    }
+    return String(error);
 }
 
 export async function withRetry<T>(
-    operation: () => Promise<T>,
+    fn: () => Promise<T>,
     maxRetries: number = 3,
-    delay: number = 1000
+    delayMs: number = 1000,
+    shouldRetry: (error: unknown) => boolean = isRetryable
 ): Promise<T> {
-    let lastError: Error;
+    let lastError: unknown;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-            return await operation();
+            return await fn();
         } catch (error) {
-            lastError = error as Error;
+            lastError = error;
 
-            if (!isMatrixSpyError(error) || !error.retryable) {
-                throw error;
+            if (attempt < maxRetries && shouldRetry(error)) {
+                const backoffDelay = delayMs * Math.pow(2, attempt);
+                await new Promise(resolve => setTimeout(resolve, backoffDelay));
+                continue;
             }
 
-            if (attempt === maxRetries) {
-                throw lastError;
-            }
-
-            await new Promise(resolve => setTimeout(resolve, delay * (attempt + 1)));
+            throw error;
         }
     }
 
-    throw lastError!;
+    throw lastError;
 }

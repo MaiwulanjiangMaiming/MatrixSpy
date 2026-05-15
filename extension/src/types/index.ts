@@ -1,13 +1,3 @@
-/*
-Author: Maiwulanjiang Maiming
-        Peking University, Institute of Medical Technology
-        mawlan.momin@gmail.com
-*/
-
-export interface MatFileData {
-    [key: string]: MatVariable;
-}
-
 export interface MatVariable {
     _type?: string;
     shape?: number[];
@@ -15,46 +5,62 @@ export interface MatVariable {
     size?: number;
     data?: any;
     complex?: boolean;
-    statistics?: MatStatistics;
-    stats?: MatStatistics;
-    magnitude?: any;
-    phase?: any;
+    statistics?: MatStatistics | null;
+    error?: string;
+    real?: number | null;
+    imag?: number | null;
     [key: string]: any;
 }
 
 export interface MatStatistics {
-    min?: number;
-    max?: number;
-    mean?: number;
-    std?: number;
-    error?: string;
+    min?: number | null;
+    max?: number | null;
+    mean?: number | null;
+    std?: number | null;
     note?: string;
+    error?: string;
 }
 
-export interface ComplexNumber {
-    real: number;
-    imag: number;
-    _type: 'complex';
+export interface MatFileData {
+    [key: string]: MatVariable | number | string | any;
 }
 
 export interface ParserResult {
     success: boolean;
+    data?: MatFileData;
+    error?: string;
     version?: string;
     file_path?: string;
-    data?: MatFileData;
-    metadata?: any;
+}
+
+export interface SliceResult {
+    success: boolean;
+    data?: {
+        _type: string;
+        shape: number[];
+        dtype: string;
+        axis: number;
+        index: number;
+        encoded_data: string;
+        statistics: MatStatistics;
+    };
     error?: string;
     variable_name?: string;
-    message?: string;
-    details?: any;
 }
 
 export interface WebviewMessage {
     command: string;
-    data?: any;
     variableName?: string;
     variableValue?: any;
+    axis?: number;
+    index?: number;
+}
+
+export interface WebviewResponse {
+    command: string;
+    data?: any;
     error?: string;
     success?: boolean;
+    variableName?: string;
     retryable?: boolean;
 }
