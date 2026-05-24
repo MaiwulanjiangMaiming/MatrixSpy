@@ -19,6 +19,17 @@ export interface MatStatistics {
     std?: number | null;
     note?: string;
     error?: string;
+    percentiles?: {
+        p5?: number | null;
+        p25?: number | null;
+        p50?: number | null;
+        p75?: number | null;
+        p95?: number | null;
+    } | null;
+    nan_count?: number | null;
+    inf_count?: number | null;
+    sparsity?: number | null;
+    memory_mb?: number | null;
 }
 
 export interface MatFileData {

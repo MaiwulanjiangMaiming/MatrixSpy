@@ -12,12 +12,24 @@ export interface DependencyCheckResult {
     allDependenciesMet: boolean;
 }
 
+interface PendingRequest {
+    resolve: (value: any) => void;
+    reject: (reason: any) => void;
+    timer: ReturnType<typeof setTimeout>;
+}
+
 export class PythonBridge {
     private readonly pythonPath: string;
     private readonly scriptPath: string;
-    private process: ChildProcess | null = null;
-    private readonly maxProcessTimeout = 60000;
+    private daemonProcess: ChildProcess | null = null;
     private disposed = false;
+    private nextRequestId = 1;
+    private pendingRequests = new Map<number, PendingRequest>();
+    private stdoutBuffer = '';
+    private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+    private currentFilePath: string | null = null;
+    private readonly maxProcessTimeout = 60000;
+    private restarting = false;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         const extensionPath = context.extensionPath;
@@ -108,6 +120,199 @@ print(','.join(missing))`
         });
     }
 
+    private async ensureDaemon(): Promise<void> {
+        if (this.daemonProcess && this.daemonProcess.exitCode === null) {
+            return;
+        }
+
+        await this.startDaemon();
+    }
+
+    private startDaemon(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.daemonProcess = spawn(this.pythonPath, [this.scriptPath, '--daemon'], {
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+
+            let started = false;
+
+            this.daemonProcess.stdout?.on('data', (data: Buffer) => {
+                this.handleStdoutData(data);
+                if (!started) {
+                    started = true;
+                    resolve();
+                }
+            });
+
+            this.daemonProcess.stderr?.on('data', (data: Buffer) => {
+                const msg = data.toString().trim();
+                if (msg) {
+                    console.warn('[MatrixSpy] Daemon stderr:', msg);
+                }
+            });
+
+            this.daemonProcess.on('close', (code: number) => {
+                this.daemonProcess = null;
+                this.rejectAllPending(`Daemon process exited with code ${code}`);
+                if (!started) {
+                    reject(new Error(`Daemon process exited with code ${code}`));
+                } else if (!this.disposed && !this.restarting) {
+                    this.handleCrashRecovery();
+                }
+            });
+
+            this.daemonProcess.on('error', (error: Error) => {
+                this.daemonProcess = null;
+                this.rejectAllPending(`Daemon process error: ${error.message}`);
+                if (!started) {
+                    reject(error);
+                }
+            });
+
+            this.startHeartbeat();
+        });
+    }
+
+    private handleStdoutData(data: Buffer): void {
+        this.stdoutBuffer += data.toString();
+        const lines = this.stdoutBuffer.split('\n');
+        this.stdoutBuffer = lines.pop() || '';
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            try {
+                const response = JSON.parse(trimmed);
+                this.handleResponse(response);
+            } catch {
+                console.warn('[MatrixSpy] Failed to parse daemon response:', trimmed.substring(0, 200));
+            }
+        }
+    }
+
+    private handleResponse(response: any): void {
+        const requestId = response._request_id;
+        if (requestId !== undefined && this.pendingRequests.has(requestId)) {
+            const pending = this.pendingRequests.get(requestId)!;
+            this.pendingRequests.delete(requestId);
+            clearTimeout(pending.timer);
+            pending.resolve(response);
+        }
+    }
+
+    private rejectAllPending(reason: string): void {
+        for (const [id, pending] of this.pendingRequests) {
+            clearTimeout(pending.timer);
+            pending.reject(createError(reason, ERROR_CODES.UNKNOWN, null, true));
+        }
+        this.pendingRequests.clear();
+    }
+
+    private async handleCrashRecovery(): Promise<void> {
+        if (this.disposed || this.restarting) return;
+        this.restarting = true;
+
+        try {
+            await this.startDaemon();
+
+            if (this.currentFilePath) {
+                try {
+                    await this.sendRequest({
+                        action: 'load_file',
+                        path: this.currentFilePath
+                    });
+                } catch {
+                    // best effort
+                }
+            }
+        } catch {
+            // restart failed, will try again on next request
+        } finally {
+            this.restarting = false;
+        }
+    }
+
+    private startHeartbeat(): void {
+        this.stopHeartbeat();
+        this.heartbeatInterval = setInterval(async () => {
+            if (this.disposed || !this.daemonProcess || this.daemonProcess.exitCode !== null) {
+                return;
+            }
+
+            try {
+                const result = await Promise.race([
+                    this.sendRequest({ action: 'ping' }),
+                    new Promise<null>((_, reject) =>
+                        setTimeout(() => reject(new Error('Heartbeat timeout')), 5000)
+                    )
+                ]);
+
+                if (!result || result.action !== 'pong') {
+                    throw new Error('Invalid heartbeat response');
+                }
+            } catch {
+                if (!this.disposed && this.daemonProcess && this.daemonProcess.exitCode === null) {
+                    this.killProcess(this.daemonProcess);
+                    this.daemonProcess = null;
+                    this.handleCrashRecovery();
+                }
+            }
+        }, 30000);
+    }
+
+    private stopHeartbeat(): void {
+        if (this.heartbeatInterval !== null) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+    }
+
+    private sendRequest(request: object): Promise<any> {
+        return new Promise(async (resolve, reject) => {
+            if (this.disposed) {
+                reject(createError('PythonBridge has been disposed', ERROR_CODES.UNKNOWN, null, false));
+                return;
+            }
+
+            try {
+                await this.ensureDaemon();
+            } catch (err) {
+                reject(createError(
+                    `Failed to start daemon: ${err instanceof Error ? err.message : String(err)}`,
+                    ERROR_CODES.PYTHON_NOT_FOUND,
+                    null,
+                    true
+                ));
+                return;
+            }
+
+            const requestId = this.nextRequestId++;
+            const requestWithId = { ...request, _request_id: requestId };
+
+            const timer = setTimeout(() => {
+                this.pendingRequests.delete(requestId);
+                reject(createError('Daemon request timeout', ERROR_CODES.TIMEOUT, null, true));
+            }, this.maxProcessTimeout);
+
+            this.pendingRequests.set(requestId, { resolve, reject, timer });
+
+            try {
+                const line = JSON.stringify(requestWithId) + '\n';
+                this.daemonProcess!.stdin!.write(line);
+            } catch (err) {
+                this.pendingRequests.delete(requestId);
+                clearTimeout(timer);
+                reject(createError(
+                    `Failed to write to daemon stdin: ${err instanceof Error ? err.message : String(err)}`,
+                    ERROR_CODES.UNKNOWN,
+                    null,
+                    true
+                ));
+            }
+        });
+    }
+
     private killProcess(proc: ChildProcess | null): void {
         if (!proc || proc.exitCode !== null) return;
 
@@ -144,97 +349,35 @@ print(','.join(missing))`
             );
         }
 
-        this.killProcess(this.process);
-        this.process = null;
+        this.currentFilePath = filePath;
 
-        return new Promise((resolve, reject) => {
-            const fullArgs = [this.scriptPath, filePath];
-            const timeoutId = setTimeout(() => {
-                this.killProcess(this.process);
-                this.process = null;
-                reject(createError('Python process timeout', ERROR_CODES.TIMEOUT, null, true));
-            }, this.maxProcessTimeout);
-
-            this.process = spawn(this.pythonPath, fullArgs);
-
-            let stdout = '';
-            let stderr = '';
-
-            const cleanup = () => {
-                clearTimeout(timeoutId);
-            };
-
-            this.process.stdout?.on('data', (data: Buffer) => {
-                stdout += data.toString();
+        try {
+            const result = await this.sendRequest({
+                action: 'load_file',
+                path: filePath
             });
 
-            this.process.stderr?.on('data', (data: Buffer) => {
-                stderr += data.toString();
-            });
+            if (!result.success) {
+                throw createError(
+                    result.error || 'Failed to parse MAT file',
+                    ERROR_CODES.INVALID_FILE_FORMAT,
+                    result,
+                    false
+                );
+            }
 
-            this.process.on('close', (code: number) => {
-                cleanup();
-                this.process = null;
-
-                if (code !== 0) {
-                    let errorMsg = `Python process exited with code ${code}`;
-                    let errorCode: ErrorCode = ERROR_CODES.DEPENDENCY_MISSING;
-
-                    if (stderr.includes('ModuleNotFoundError') || stderr.includes('ImportError')) {
-                        errorMsg = 'Missing Python dependencies. Please run: pip install scipy numpy h5py mat73';
-                    } else if (stderr.includes('No module named') || stderr.includes('python3') || stderr.includes('python')) {
-                        errorMsg = 'Python not found. Please install Python 3.8+ and update the matrixspy.pythonPath setting.';
-                        errorCode = ERROR_CODES.PYTHON_NOT_FOUND;
-                    }
-
-                    reject(createError(errorMsg, errorCode, { stderr: stderr.substring(0, 500) }, true));
-                    return;
-                }
-
-                try {
-                    const result: ParserResult = JSON.parse(stdout);
-                    if (!result.success) {
-                        reject(createError(
-                            result.error || 'Failed to parse MAT file',
-                            ERROR_CODES.INVALID_FILE_FORMAT,
-                            result,
-                            false
-                        ));
-                        return;
-                    }
-                    resolve(result);
-                } catch {
-                    let errorCode: ErrorCode = ERROR_CODES.UNKNOWN;
-                    if (stdout.includes('MemoryError') || stderr.includes('MemoryError')) {
-                        errorCode = ERROR_CODES.MEMORY_ERROR;
-                    }
-
-                    reject(createError(
-                        `Failed to parse Python output`,
-                        errorCode,
-                        { stdout: stdout.substring(0, 200), stderr: stderr.substring(0, 200) },
-                        errorCode === ERROR_CODES.MEMORY_ERROR
-                    ));
-                }
-            });
-
-            this.process.on('error', (error: Error) => {
-                cleanup();
-                this.process = null;
-
-                let errorCode: ErrorCode = ERROR_CODES.UNKNOWN;
-                if (error.message.includes('ENOENT')) {
-                    errorCode = ERROR_CODES.PYTHON_NOT_FOUND;
-                }
-
-                reject(createError(
-                    `Failed to start Python process: ${error.message}`,
-                    errorCode,
-                    { pythonPath: this.pythonPath },
-                    errorCode === ERROR_CODES.PYTHON_NOT_FOUND
-                ));
-            });
-        });
+            return result as ParserResult;
+        } catch (err) {
+            if (err && typeof err === 'object' && 'code' in err) {
+                throw err;
+            }
+            throw createError(
+                `Failed to parse file: ${err instanceof Error ? err.message : String(err)}`,
+                ERROR_CODES.UNKNOWN,
+                null,
+                true
+            );
+        }
     }
 
     async loadSlice(filePath: string, variableName: string, axis: number, index: number): Promise<any> {
@@ -246,79 +389,58 @@ print(','.join(missing))`
             throw createError(`File not found: ${filePath}`, ERROR_CODES.FILE_NOT_FOUND, null, false);
         }
 
-        return new Promise((resolve, reject) => {
-            const fullArgs = [this.scriptPath, filePath, '--slice', variableName, String(axis), String(index)];
-            const proc = spawn(this.pythonPath, fullArgs);
-
-            const timeoutId = setTimeout(() => {
-                this.killProcess(proc);
-                reject(createError('Slice load timeout', ERROR_CODES.TIMEOUT, null, true));
-            }, this.maxProcessTimeout);
-
-            let stdout = '';
-            let stderr = '';
-
-            const cleanup = () => {
-                clearTimeout(timeoutId);
-            };
-
-            proc.stdout?.on('data', (data: Buffer) => {
-                stdout += data.toString();
+        try {
+            const result = await this.sendRequest({
+                action: 'load_slice',
+                path: filePath,
+                variable: variableName,
+                axis,
+                index
             });
 
-            proc.stderr?.on('data', (data: Buffer) => {
-                stderr += data.toString();
-            });
+            if (!result.success) {
+                throw createError(
+                    result.error || 'Failed to load slice',
+                    ERROR_CODES.SLICE_ERROR,
+                    result,
+                    false
+                );
+            }
 
-            proc.on('close', (code: number) => {
-                cleanup();
-                if (code !== 0) {
-                    reject(createError(
-                        `Slice load failed with code ${code}`,
-                        ERROR_CODES.UNKNOWN,
-                        { stderr: stderr.substring(0, 500) },
-                        true
-                    ));
-                    return;
-                }
-
-                try {
-                    const result = JSON.parse(stdout);
-                    if (!result.success) {
-                        reject(createError(
-                            result.error || 'Failed to load slice',
-                            ERROR_CODES.INVALID_FILE_FORMAT,
-                            result,
-                            false
-                        ));
-                        return;
-                    }
-                    resolve(result);
-                } catch {
-                    reject(createError(
-                        'Failed to parse slice output',
-                        ERROR_CODES.UNKNOWN,
-                        { stdout: stdout.substring(0, 200) },
-                        true
-                    ));
-                }
-            });
-
-            proc.on('error', (error: Error) => {
-                cleanup();
-                reject(createError(
-                    `Failed to start Python process for slice: ${error.message}`,
-                    ERROR_CODES.UNKNOWN,
-                    null,
-                    true
-                ));
-            });
-        });
+            return result;
+        } catch (err) {
+            if (err && typeof err === 'object' && 'code' in err) {
+                throw err;
+            }
+            throw createError(
+                `Failed to load slice: ${err instanceof Error ? err.message : String(err)}`,
+                ERROR_CODES.SLICE_ERROR,
+                null,
+                true
+            );
+        }
     }
 
-    dispose(): void {
+    async dispose(): Promise<void> {
         this.disposed = true;
-        this.killProcess(this.process);
-        this.process = null;
+        this.stopHeartbeat();
+
+        if (this.daemonProcess && this.daemonProcess.exitCode === null) {
+            try {
+                const shutdownResult = await Promise.race([
+                    this.sendRequest({ action: 'shutdown' }),
+                    new Promise<null>((_, reject) =>
+                        setTimeout(() => reject(new Error('Shutdown timeout')), 3000)
+                    )
+                ]);
+            } catch {
+                // shutdown request failed or timed out
+            }
+
+            this.killProcess(this.daemonProcess);
+            this.daemonProcess = null;
+        }
+
+        this.rejectAllPending('PythonBridge disposed');
     }
 }

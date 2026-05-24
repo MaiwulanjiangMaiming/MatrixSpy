@@ -352,9 +352,10 @@ export function updateCurrentWebviewPanel(panel: vscode.WebviewPanel | null): vo
     setCurrentWebviewPanel(panel);
 }
 
-export function deactivate(): void {
+export function deactivate(): Thenable<void> | undefined {
     fileDataCache.clear();
     if (currentPythonBridge) {
-        currentPythonBridge.dispose();
+        return currentPythonBridge.dispose();
     }
+    return undefined;
 }

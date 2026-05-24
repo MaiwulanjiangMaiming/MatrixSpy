@@ -1,15 +1,17 @@
+import * as crypto from 'crypto';
 import { getCss } from './css';
 import { getJs } from './js';
 
 export function getHtml(version: string): string {
+    const nonce = crypto.randomBytes(16).toString('base64');
     return `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; img-src data:;">
     <title>MatrixSpy</title>
-    <style>${getCss()}</style>
+    <style nonce="${nonce}">${getCss()}</style>
 </head>
 <body>
     <div class="app">
@@ -19,7 +21,7 @@ export function getHtml(version: string): string {
                 <button class="sidebar-toggle" id="sidebarToggle" title="Hide sidebar">◀</button>
             </div>
             <div class="sidebar-content" id="sidebarContent">
-                <div style="padding: 20px; color: var(--text-secondary); font-size: 13px;">
+                <div style="padding: 20px; color: var(--vscode-descriptionForeground); font-size: 13px;">
                     Loading variables...
                 </div>
             </div>
@@ -68,27 +70,27 @@ export function getHtml(version: string): string {
                 </div>
             </div>
 
-            <div class="settings-section">
-                <div class="settings-section-title">Appearance</div>
-                <div class="theme-options">
-                    <div class="theme-option" id="darkTheme">
-                        <div class="theme-icon">🌙</div>
-                        <div class="theme-name">Dark</div>
-                    </div>
-                    <div class="theme-option" id="lightTheme">
-                        <div class="theme-icon">☀️</div>
-                        <div class="theme-name">Light</div>
-                    </div>
-                    <div class="theme-option" id="autoTheme">
-                        <div class="theme-icon">🔄</div>
-                        <div class="theme-name">Auto</div>
-                    </div>
+        </div>
+        <div class="settings-footer">
+            <div class="support-section">
+                <div class="support-title">Support MatrixSpy</div>
+                <a href="#" class="support-btn" id="starLink" onclick="return false;">
+                    <span class="support-icon">⭐</span>
+                    <span>Star on GitHub</span>
+                </a>
+                <a href="#" class="support-btn" id="feedbackLink" onclick="return false;">
+                    <span class="support-icon">💬</span>
+                    <span>Feedback & Issues</span>
+                </a>
+                <div class="support-divider"></div>
+                <div class="support-note">
+                    Your support helps keep MatrixSpy free and actively maintained. Thank you!
                 </div>
             </div>
         </div>
     </div>
 
-    <script>${getJs(version)}</script>
+    <script nonce="${nonce}">${getJs(version)}</script>
 </body>
 </html>`;
 }

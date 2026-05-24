@@ -2,6 +2,38 @@
 
 All notable changes to MatrixSpy will be documented in this file.
 
+## [1.2.1] - 2026-05-15
+
+### Architecture
+
+- **Persistent Python Daemon**: Replaced per-request process spawning with a single persistent daemon process communicating via stdin/stdout JSON-RPC. Slice loading time reduced from ~500ms to ~20ms
+- **Heartbeat mechanism**: 30s ping/pong keepalive with automatic daemon restart on crash
+- **Graceful shutdown**: `dispose()` sends `shutdown` signal before process termination
+
+### Security
+
+- **Python injection prevention**: All IPC now uses stdin JSON-RPC instead of command-line arguments, eliminating shell injection risk
+- **CSP nonce hardening**: Replaced `unsafe-inline` with per-request nonce-based Content Security Policy
+- **Resource limits**: Added `MAX_ARRAY_ELEMENTS = 100,000,000` check to prevent memory exhaustion from malicious MAT files
+
+### Features
+
+- **Enhanced statistics panel**: Added percentiles (P5/P25/P50/P75/P95), NaN count, Inf count, sparsity ratio, and memory usage (MB)
+- **VS Code native theme support**: Replaced all custom CSS variables with VS Code native CSS variables, ensuring correct appearance in all themes (dark/light/high contrast) without manual switching
+
+### Engineering
+
+- **Python unit tests**: 28 pytest tests covering v5 parsing, HDF5 parsing, NaN/Inf serialization, and daemon JSON-RPC communication
+- **GitHub Actions CI**: Automated pipeline with Python 3.10/3.11/3.12 matrix, ruff linting, TypeScript compilation, and VSIX packaging
+- **Python linting**: Added type annotations, ruff checks pass, removed unused variables
+- **Daemon bug fix**: Changed `for line in stdin:` to `while True: line = stdin.readline()` — the iterator's read-ahead buffer blocks on pipes
+
+### Removed
+
+- Manual theme switching UI (Dark/Light/Auto buttons) — now uses VS Code native theme
+- All hardcoded CSS color values — replaced with VS Code CSS variables
+- `test_output.json` debug artifact deleted and added to `.gitignore`
+
 ## [1.2.0] - 2026-05-15
 
 ### Security

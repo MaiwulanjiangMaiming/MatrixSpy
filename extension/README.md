@@ -89,6 +89,26 @@ When viewing tensors in Image mode:
 
 ## Changelog
 
+### v1.2.1 (2026-05-15)
+
+**Architecture**
+- Persistent Python Daemon: stdin/stdout JSON-RPC, ~25x faster slice loading
+- Heartbeat + crash recovery for daemon process
+
+**Security**
+- Python injection prevention via stdin JSON-RPC
+- CSP nonce hardening (replaced unsafe-inline)
+- Resource limits (100M element cap)
+
+**Features**
+- Enhanced statistics: percentiles, NaN/Inf count, sparsity, memory usage
+- VS Code native theme support (no manual theme switching needed)
+
+**Engineering**
+- 28 pytest tests (v5/HDF5/serializer/daemon)
+- GitHub Actions CI (Python 3.10-3.12, ruff, TypeScript, VSIX)
+- Python type annotations + ruff linting
+
 ### v1.2.0 (2026-05-15)
 
 **Security**

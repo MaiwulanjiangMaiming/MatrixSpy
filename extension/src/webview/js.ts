@@ -13,9 +13,6 @@ const settingsBtn = document.getElementById('settingsBtn');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 const settingsPanel = document.getElementById('settingsPanel');
 const overlay = document.getElementById('overlay');
-const darkTheme = document.getElementById('darkTheme');
-const lightTheme = document.getElementById('lightTheme');
-const autoTheme = document.getElementById('autoTheme');
 const githubLink = document.getElementById('githubLink');
 const sidebar = document.getElementById('sidebar');
 const sidebarContent = document.getElementById('sidebarContent');
@@ -29,7 +26,6 @@ const state = {
     currentViewMode: localStorage.getItem('matViewerViewMode') || 'magnitude',
     currentAxis: parseInt(localStorage.getItem('matViewerAxis') || '2'),
     currentSlice: parseInt(localStorage.getItem('matViewerSlice') || '0'),
-    currentTheme: localStorage.getItem('matViewerTheme') || 'auto',
     currentShowCount1D: parseInt(localStorage.getItem('matViewerShowCount1D') || '50'),
     currentShowRows2D: parseInt(localStorage.getItem('matViewerShowRows2D') || '50'),
     currentShowCols2D: parseInt(localStorage.getItem('matViewerShowCols2D') || '20'),
@@ -122,34 +118,6 @@ function scheduleCanvasRender(data) {
             }
         });
     }
-}
-
-function detectSystemTheme() {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-function applyTheme(theme) {
-    state.currentTheme = theme;
-    localStorage.setItem('matViewerTheme', theme);
-
-    var effectiveTheme = theme;
-    if (theme === 'auto') {
-        effectiveTheme = detectSystemTheme();
-    }
-
-    document.body.classList.remove('dark-theme', 'light-theme');
-    if (effectiveTheme === 'light') {
-        document.body.classList.add('light-theme');
-    }
-
-    updateThemeButtons();
-}
-
-function updateThemeButtons() {
-    [darkTheme, lightTheme, autoTheme].forEach(function(el) { el.classList.remove('active'); });
-    if (state.currentTheme === 'dark') darkTheme.classList.add('active');
-    else if (state.currentTheme === 'light') lightTheme.classList.add('active');
-    else autoTheme.classList.add('active');
 }
 
 function toggleSidebar() {
@@ -359,6 +327,39 @@ function renderStats(stats) {
         html += '<div class="stat-item"><div class="stat-label">Std</div><div class="stat-value">' + (typeof stats.std === 'number' ? stats.std.toFixed(4) : escapeHtml(String(stats.std))) + '</div></div>';
     }
     html += '</div>';
+
+    if (stats.percentiles) {
+        html += '<div class="stats-grid">';
+        var pKeys = ['p5', 'p25', 'p50', 'p75', 'p95'];
+        var pLabels = ['P5', 'P25', 'P50', 'P75', 'P95'];
+        for (var pi = 0; pi < pKeys.length; pi++) {
+            var pv = stats.percentiles[pKeys[pi]];
+            html += '<div class="stat-item"><div class="stat-label">' + pLabels[pi] + '</div><div class="stat-value">' + (typeof pv === 'number' ? pv.toFixed(4) : '\\u2014') + '</div></div>';
+        }
+        html += '</div>';
+    }
+
+    var extraItems = [];
+    if (stats.nan_count && stats.nan_count > 0) {
+        extraItems.push('NaN: ' + stats.nan_count);
+    }
+    if (stats.inf_count && stats.inf_count > 0) {
+        extraItems.push('Inf: ' + stats.inf_count);
+    }
+    if (typeof stats.sparsity === 'number') {
+        extraItems.push('Sparsity: ' + (stats.sparsity * 100).toFixed(1) + '%');
+    }
+    if (typeof stats.memory_mb === 'number') {
+        extraItems.push('Memory: ' + stats.memory_mb.toFixed(2) + ' MB');
+    }
+    if (extraItems.length > 0) {
+        html += '<div class="stats-extra" style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--vscode-descriptionForeground);margin-top:6px;">';
+        for (var ei = 0; ei < extraItems.length; ei++) {
+            html += '<span>' + escapeHtml(extraItems[ei]) + '</span>';
+        }
+        html += '</div>';
+    }
+
     return html;
 }
 
@@ -612,7 +613,7 @@ function renderHistogram(data, canvasId) {
     ctx.clearRect(0, 0, width, height);
 
     var style = getComputedStyle(document.body);
-    var accentColor = style.getPropertyValue('--text-accent').trim() || '#3794ff';
+    var accentColor = style.getPropertyValue('--vscode-textLink-foreground').trim() || '#3794ff';
 
     for (var hi = 0; hi < numBins; hi++) {
         var barHeight = maxBin > 0 ? (bins[hi] / maxBin) * height : 0;
@@ -647,7 +648,7 @@ function renderSparkline(data) {
     }
 
     return '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg">' +
-        '<path d="' + points + '" fill="none" stroke="var(--text-accent, #3794ff)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path d="' + points + '" fill="none" stroke="var(--vscode-textLink-foreground, #3794ff)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>' +
         '</svg>';
 }
 
@@ -669,10 +670,10 @@ function flattenData(data) {
 }
 
 function render1DArray(value) {
-    if (!value.data) return '<div style="padding: 20px; text-align: center; color: var(--text-secondary);">No data available</div>';
+    if (!value.data) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">No data available</div>';
 
     var data = value.data;
-    if (data.length === 0) return '<div style="padding: 20px; text-align: center; color: var(--text-secondary);">Empty array</div>';
+    if (data.length === 0) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">Empty array</div>';
     var itemsToShow = Math.min(state.currentShowCount1D, data.length);
 
     var html = '<div class="vector-grid">';
@@ -703,11 +704,11 @@ function render1DArray(value) {
 }
 
 function render2DTable(value) {
-    if (!value.data) return '<div style="padding: 20px; text-align: center; color: var(--text-secondary);">No data available</div>';
+    if (!value.data) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">No data available</div>';
 
     var data = value.data;
-    if (!value.shape || value.shape.length < 2) return '<div style="padding: 20px; text-align: center; color: var(--text-secondary);">Invalid array shape</div>';
-    if (value.shape[0] === 0 || value.shape[1] === 0) return '<div style="padding: 20px; text-align: center; color: var(--text-secondary);">Empty array</div>';
+    if (!value.shape || value.shape.length < 2) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">Invalid array shape</div>';
+    if (value.shape[0] === 0 || value.shape[1] === 0) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">Empty array</div>';
     var rowsToShow = Math.min(state.currentShowRows2D, value.shape[0]);
     var colsToShow = Math.min(state.currentShowCols2D, value.shape[1]);
 
@@ -777,8 +778,8 @@ function render3DTable(value) {
 
     if (!sliceData) {
         return '<div style="padding: 20px; text-align: center;">' +
-            '<p style="color: var(--text-secondary);">Large tensor - switch to <b>Image</b> mode for slice visualization, or the data is too large for table display.</p>' +
-            '<p id="tableLoadingIndicator" style="margin-top:12px; color: var(--text-accent); font-size:12px;"></p>' +
+            '<p style="color: var(--vscode-descriptionForeground);">Large tensor - switch to <b>Image</b> mode for slice visualization, or the data is too large for table display.</p>' +
+            '<p id="tableLoadingIndicator" style="margin-top:12px; color: var(--vscode-textLink-foreground); font-size:12px;"></p>' +
             '</div>';
     }
 
@@ -934,7 +935,7 @@ function renderNDArray(name, value) {
     html += renderStats(stats);
 
     if (!hasData) {
-        html += '<p style="margin: 16px 0; color: var(--text-secondary); font-size: 13px;">Large tensor - using lazy loading. Select a slice below to visualize.</p>';
+        html += '<p style="margin: 16px 0; color: var(--vscode-descriptionForeground); font-size: 13px;">Large tensor - using lazy loading. Select a slice below to visualize.</p>';
     }
 
     html += '<div class="view-tabs">' +
@@ -977,7 +978,7 @@ function renderNDArray(name, value) {
             html += '<label>Slice:</label>' +
                 '<input type="range" id="sliceSlider" min="0" max="' + (numSlices - 1) + '" value="' + state.currentSlice + '" data-action="updateSlice">' +
                 '<span class="tensor-value" id="sliceValue">' + state.currentSlice + '</span>' +
-                '<span id="sliceLoadingIndicator" style="display:none; margin-left:12px; color: var(--text-accent); font-size:12px;"></span>';
+                '<span id="sliceLoadingIndicator" style="display:none; margin-left:12px; color: var(--vscode-textLink-foreground); font-size:12px;"></span>';
         }
 
         html += '</div>';
@@ -1045,7 +1046,7 @@ function renderPreview(name, value) {
             '<div class="preview-meta">String \\u00B7 ' + value.length + ' chars</div>' +
             '</div>' +
             '<div class="preview-content">' +
-            '<div style="padding: 20px; background: var(--bg-hover); border-radius: 12px; font-family: monospace;">"' + escapeHtml(value) + '"</div>' +
+            '<div style="padding: 20px; background: var(--vscode-list-hoverBackground); border-radius: 12px; font-family: monospace;">"' + escapeHtml(value) + '"</div>' +
             '</div>' +
             '</div>';
     } else if (value && value._type === 'complex') {
@@ -1058,11 +1059,11 @@ function renderPreview(name, value) {
             '<div class="complex-view">' +
             '<div class="complex-part">' +
             '<div class="complex-label">Real</div>' +
-            '<div class="complex-value" style="color: var(--text-accent);">' + value.real + '</div>' +
+            '<div class="complex-value" style="color: var(--vscode-textLink-foreground);">' + value.real + '</div>' +
             '</div>' +
             '<div class="complex-part">' +
             '<div class="complex-label">Imaginary</div>' +
-            '<div class="complex-value" style="color: var(--text-error);">' + value.imag + 'i</div>' +
+            '<div class="complex-value" style="color: var(--vscode-errorForeground);">' + value.imag + 'i</div>' +
             '</div>' +
             '</div>' +
             '</div>' +
@@ -1092,7 +1093,7 @@ function renderPreview(name, value) {
                 '<div class="preview-meta">' + escapeHtml(formatType(value)) + '</div>' +
                 '</div>' +
                 '<div class="preview-content">' +
-                '<pre style="background: var(--bg-primary); padding: 20px; border-radius: 12px; overflow: auto;">' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>' +
+                '<pre style="background: var(--vscode-editor-background); padding: 20px; border-radius: 12px; overflow: auto;">' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>' +
                 '</div>' +
                 '</div>';
         }
@@ -1105,7 +1106,7 @@ function renderPreview(name, value) {
             '<div class="preview-meta">' + escapeHtml(formatType(value)) + '</div>' +
             '</div>' +
             '<div class="preview-content">' +
-            '<pre style="background: var(--bg-primary); padding: 20px; border-radius: 12px; overflow: auto;">' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>' +
+            '<pre style="background: var(--vscode-editor-background); padding: 20px; border-radius: 12px; overflow: auto;">' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>' +
             '</div>' +
             '</div>';
     }
@@ -1356,10 +1357,6 @@ document.addEventListener('click', function(e) {
     }
 });
 
-darkTheme.addEventListener('click', function() { applyTheme('dark'); });
-lightTheme.addEventListener('click', function() { applyTheme('light'); });
-autoTheme.addEventListener('click', function() { applyTheme('auto'); });
-
 sidebarToggle.addEventListener('click', toggleSidebar);
 headerToggle.addEventListener('click', toggleSidebar);
 
@@ -1367,14 +1364,16 @@ githubLink.addEventListener('click', function() {
     vscode.postMessage({ command: 'openExternal', url: 'https://github.com/MaiwulanjiangMaiming/MatrixSpy' });
 });
 
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
-    if (state.currentTheme === 'auto') {
-        applyTheme('auto');
-    }
+var starLink = document.getElementById('starLink');
+var feedbackLink = document.getElementById('feedbackLink');
+
+starLink.addEventListener('click', function() {
+    vscode.postMessage({ command: 'openExternal', url: 'https://github.com/MaiwulanjiangMaiming/MatrixSpy' });
 });
 
-var savedTheme = localStorage.getItem('matViewerTheme') || 'auto';
-applyTheme(savedTheme);
+feedbackLink.addEventListener('click', function() {
+    vscode.postMessage({ command: 'openExternal', url: 'https://github.com/MaiwulanjiangMaiming/MatrixSpy/issues' });
+});
 
 var savedSidebarCollapsed = localStorage.getItem('matViewerSidebarCollapsed');
 if (savedSidebarCollapsed === 'true') {

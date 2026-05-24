@@ -1,7 +1,7 @@
 import sys
 import scipy.io
 import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 import json
 import base64
 import h5py
@@ -9,7 +9,9 @@ import h5py
 
 class HighPerfMatParser:
 
-    def __init__(self, max_preview_size=1000000):
+    MAX_ARRAY_ELEMENTS = 100_000_000
+
+    def __init__(self, max_preview_size: int = 1000000) -> None:
         self.max_preview_size = max_preview_size
 
     def parse_file(self, file_path: str) -> Dict[str, Any]:
@@ -154,6 +156,12 @@ class HighPerfMatParser:
         if np.iscomplexobj(item):
             result['complex'] = True
 
+        if item.size > self.MAX_ARRAY_ELEMENTS:
+            result['data'] = None
+            result['error'] = 'Array exceeds maximum size limit'
+            result['statistics'] = None
+            return result
+
         if item.size > self.max_preview_size:
             result['data'] = None
             result['statistics'] = self._get_hdf5_stats(item)
@@ -241,6 +249,12 @@ class HighPerfMatParser:
             'size': int(arr.size)
         }
 
+        if arr.size > self.MAX_ARRAY_ELEMENTS:
+            result['data'] = None
+            result['error'] = 'Array exceeds maximum size limit'
+            result['statistics'] = None
+            return result
+
         should_load = force_load or arr.size <= self.max_preview_size
 
         if should_load:
@@ -264,7 +278,7 @@ class HighPerfMatParser:
         data = arr.tolist()
         return self._replace_nan_inf(data)
 
-    def _replace_nan_inf(self, data):
+    def _replace_nan_inf(self, data: Any) -> Any:
         if isinstance(data, list):
             return [self._replace_nan_inf(item) for item in data]
         elif isinstance(data, float):
@@ -299,7 +313,7 @@ class HighPerfMatParser:
 
         return convert_recursive(arr)
 
-    def _safe_float(self, val):
+    def _safe_float(self, val: Any) -> Optional[float]:
         if val is None:
             return None
         try:
@@ -310,7 +324,7 @@ class HighPerfMatParser:
         except (ValueError, TypeError):
             return None
 
-    def _get_stats(self, arr) -> Dict[str, Any]:
+    def _get_stats(self, arr: Any) -> Dict[str, Any]:
         try:
             if isinstance(arr, h5py.Dataset):
                 return self._get_hdf5_stats(arr)
@@ -324,21 +338,53 @@ class HighPerfMatParser:
             if arr.size == 0:
                 return {'min': None, 'max': None, 'mean': None, 'std': None}
 
+            stats: Dict[str, Any] = {}
+
             if np.iscomplexobj(arr):
                 abs_arr = np.abs(arr)
-                return {
-                    'min': self._safe_float(np.nanmin(abs_arr)),
-                    'max': self._safe_float(np.nanmax(abs_arr)),
-                    'mean': self._safe_float(np.nanmean(abs_arr)),
-                    'std': self._safe_float(np.nanstd(abs_arr))
-                }
+                stats['min'] = self._safe_float(np.nanmin(abs_arr))
+                stats['max'] = self._safe_float(np.nanmax(abs_arr))
+                stats['mean'] = self._safe_float(np.nanmean(abs_arr))
+                stats['std'] = self._safe_float(np.nanstd(abs_arr))
             else:
-                return {
-                    'min': self._safe_float(np.nanmin(arr)),
-                    'max': self._safe_float(np.nanmax(arr)),
-                    'mean': self._safe_float(np.nanmean(arr)),
-                    'std': self._safe_float(np.nanstd(arr))
-                }
+                stats['min'] = self._safe_float(np.nanmin(arr))
+                stats['max'] = self._safe_float(np.nanmax(arr))
+                stats['mean'] = self._safe_float(np.nanmean(arr))
+                stats['std'] = self._safe_float(np.nanstd(arr))
+
+            if np.issubdtype(arr.dtype, np.floating):
+                try:
+                    percentiles = np.nanpercentile(arr, [5, 25, 50, 75, 95])
+                    stats['percentiles'] = {
+                        'p5': self._safe_float(percentiles[0]),
+                        'p25': self._safe_float(percentiles[1]),
+                        'p50': self._safe_float(percentiles[2]),
+                        'p75': self._safe_float(percentiles[3]),
+                        'p95': self._safe_float(percentiles[4])
+                    }
+                except Exception:
+                    stats['percentiles'] = None
+                stats['nan_count'] = int(np.isnan(arr).sum())
+                stats['inf_count'] = int(np.isinf(arr).sum())
+            else:
+                try:
+                    percentiles = np.percentile(arr, [5, 25, 50, 75, 95])
+                    stats['percentiles'] = {
+                        'p5': self._safe_float(percentiles[0]),
+                        'p25': self._safe_float(percentiles[1]),
+                        'p50': self._safe_float(percentiles[2]),
+                        'p75': self._safe_float(percentiles[3]),
+                        'p95': self._safe_float(percentiles[4])
+                    }
+                except Exception:
+                    stats['percentiles'] = None
+                stats['nan_count'] = 0
+                stats['inf_count'] = 0
+
+            stats['sparsity'] = float(np.count_nonzero(arr == 0) / arr.size)
+            stats['memory_mb'] = float(arr.nbytes / 1e6)
+
+            return stats
         except Exception as e:
             return {'min': None, 'max': None, 'mean': None, 'std': None, 'error': str(e)}
 
@@ -347,33 +393,61 @@ class HighPerfMatParser:
             if not np.issubdtype(item.dtype, np.number):
                 return {'min': None, 'max': None, 'mean': None, 'std': None, 'note': 'Non-numeric array'}
 
+            stats: Dict[str, Any] = {}
+            stats['memory_mb'] = float(int(item.size) * item.dtype.itemsize / 1e6)
+
             if item.size <= max_sample:
                 data = item[()]
                 return self._get_stats(data)
-
-            total = item.size
-            step = max(1, total // max_sample)
 
             slices = [slice(None, None, max(1, s // max_sample)) for s in item.shape]
             sample = item[tuple(slices)]
 
             if np.iscomplexobj(sample):
                 abs_sample = np.abs(sample)
-                return {
-                    'min': self._safe_float(np.nanmin(abs_sample)),
-                    'max': self._safe_float(np.nanmax(abs_sample)),
-                    'mean': self._safe_float(np.nanmean(abs_sample)),
-                    'std': self._safe_float(np.nanstd(abs_sample)),
-                    'note': 'Estimated from sample'
-                }
+                stats['min'] = self._safe_float(np.nanmin(abs_sample))
+                stats['max'] = self._safe_float(np.nanmax(abs_sample))
+                stats['mean'] = self._safe_float(np.nanmean(abs_sample))
+                stats['std'] = self._safe_float(np.nanstd(abs_sample))
             else:
-                return {
-                    'min': self._safe_float(np.nanmin(sample)),
-                    'max': self._safe_float(np.nanmax(sample)),
-                    'mean': self._safe_float(np.nanmean(sample)),
-                    'std': self._safe_float(np.nanstd(sample)),
-                    'note': 'Estimated from sample'
-                }
+                stats['min'] = self._safe_float(np.nanmin(sample))
+                stats['max'] = self._safe_float(np.nanmax(sample))
+                stats['mean'] = self._safe_float(np.nanmean(sample))
+                stats['std'] = self._safe_float(np.nanstd(sample))
+
+            if np.issubdtype(sample.dtype, np.floating):
+                try:
+                    percentiles = np.nanpercentile(sample, [5, 25, 50, 75, 95])
+                    stats['percentiles'] = {
+                        'p5': self._safe_float(percentiles[0]),
+                        'p25': self._safe_float(percentiles[1]),
+                        'p50': self._safe_float(percentiles[2]),
+                        'p75': self._safe_float(percentiles[3]),
+                        'p95': self._safe_float(percentiles[4])
+                    }
+                except Exception:
+                    stats['percentiles'] = None
+                stats['nan_count'] = int(np.isnan(sample).sum())
+                stats['inf_count'] = int(np.isinf(sample).sum())
+            else:
+                try:
+                    percentiles = np.percentile(sample, [5, 25, 50, 75, 95])
+                    stats['percentiles'] = {
+                        'p5': self._safe_float(percentiles[0]),
+                        'p25': self._safe_float(percentiles[1]),
+                        'p50': self._safe_float(percentiles[2]),
+                        'p75': self._safe_float(percentiles[3]),
+                        'p95': self._safe_float(percentiles[4])
+                    }
+                except Exception:
+                    stats['percentiles'] = None
+                stats['nan_count'] = 0
+                stats['inf_count'] = 0
+
+            stats['sparsity'] = float(np.count_nonzero(sample == 0) / sample.size)
+            stats['note'] = 'Estimated from sample'
+
+            return stats
         except Exception as e:
             return {'min': None, 'max': None, 'mean': None, 'std': None, 'error': str(e)}
 
@@ -395,7 +469,60 @@ class HighPerfMatParser:
             return 'v4'
 
 
-def main():
+def daemon_main() -> None:
+    parser = HighPerfMatParser()
+    stdin = sys.stdin
+    stdout = sys.stdout
+
+    while True:
+        line = stdin.readline()
+        if not line:
+            break
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            request = json.loads(line)
+        except json.JSONDecodeError:
+            stdout.write(json.dumps({'error': 'Invalid JSON'}) + '\n')
+            stdout.flush()
+            continue
+
+        request_id = request.get('_request_id')
+        action = request.get('action')
+
+        def _respond(obj):
+            if request_id is not None:
+                obj['_request_id'] = request_id
+            stdout.write(json.dumps(obj) + '\n')
+            stdout.flush()
+
+        if action == 'ping':
+            _respond({'action': 'pong'})
+        elif action == 'shutdown':
+            _respond({'action': 'shutdown_ack'})
+            break
+        elif action == 'load_file':
+            file_path = request.get('path', '')
+            result = parser.parse_file(file_path)
+            _respond(result)
+        elif action == 'load_slice':
+            file_path = request.get('path', '')
+            variable = request.get('variable', '')
+            axis = request.get('axis', 0)
+            index = request.get('index', 0)
+            result = parser.load_slice(file_path, variable, axis, index)
+            _respond(result)
+        else:
+            _respond({'error': f'Unknown action: {action}'})
+
+
+def main() -> None:
+    if '--daemon' in sys.argv:
+        daemon_main()
+        return
+
     if len(sys.argv) < 2:
         print("Usage: python high_perf_parser.py <file.mat> [--slice <name> <axis> <index>]", file=sys.stderr)
         sys.exit(1)
