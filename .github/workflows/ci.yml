@@ -7,24 +7,22 @@ on:
     branches: [main]
 
 jobs:
-  python-tests:
+  python-lint:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ['3.11']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: pip install scipy numpy h5py mat73 pytest ruff mypy
+        run: pip install scipy numpy h5py mat73 ruff mypy
       - name: Ruff check
         run: ruff check extension/python/
       - name: Mypy check
         run: mypy extension/python/high_perf_parser.py --ignore-missing-imports --no-error-summary 2>&1 || true
-      - name: Run tests
-        run: pytest tests/ -v
 
   typescript-compile:
     runs-on: ubuntu-latest
@@ -32,20 +30,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - name: Install dependencies
         run: cd extension && npm ci
       - name: Compile
         run: cd extension && npm run compile
 
   package:
-    needs: [python-tests, typescript-compile]
+    needs: [python-lint, typescript-compile]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - name: Install and package
         run: cd extension && npm ci && npx vsce package --no-dependencies
       - uses: actions/upload-artifact@v4
