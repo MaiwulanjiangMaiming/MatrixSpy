@@ -1050,12 +1050,24 @@ function render2DArray(name, value) {
             '<button class="canvas-zoom-btn" id="canvasZoomReset" title="Reset zoom" style="font-size:12px;">1:1</button>' +
             '</div>' +
             '<div class="image-enhance-controls">' +
-            '<label>Window:</label><input type="range" id="windowLevel" min="0" max="100" value="50" data-action="windowLevel">' +
-            '<label>Level:</label><input type="range" id="windowWidth" min="1" max="100" value="100" data-action="windowWidth">' +
-            '<button class="canvas-zoom-btn" id="rotateLeft" title="Rotate left">↺</button>' +
-            '<button class="canvas-zoom-btn" id="rotateRight" title="Rotate right">↻</button>' +
-            '<button class="canvas-zoom-btn" id="flipH" title="Flip horizontal">⇄</button>' +
-            '<button class="canvas-zoom-btn" id="flipV" title="Flip vertical">⇅</button>' +
+            '<div class="enhance-row">' +
+            '<div class="enhance-group">' +
+            '<label>Window</label>' +
+            '<input type="range" id="windowLevel" min="0" max="100" value="' + Math.round(state.windowLevel * 100) + '" data-action="windowLevel">' +
+            '<span class="enhance-value" id="windowLevelValue">' + Math.round(state.windowLevel * 100) + '%</span>' +
+            '</div>' +
+            '<div class="enhance-group">' +
+            '<label>Level</label>' +
+            '<input type="range" id="windowWidth" min="1" max="100" value="' + Math.round(state.windowWidth * 100) + '" data-action="windowWidth">' +
+            '<span class="enhance-value" id="windowWidthValue">' + Math.round(state.windowWidth * 100) + '%</span>' +
+            '</div>' +
+            '</div>' +
+            '<div class="enhance-row enhance-buttons">' +
+            '<button class="enhance-btn" id="rotateLeft" title="Rotate left (↺)">↺</button>' +
+            '<button class="enhance-btn" id="rotateRight" title="Rotate right (↻)">↻</button>' +
+            '<button class="enhance-btn" id="flipH" title="Flip horizontal (⇄)">⇄</button>' +
+            '<button class="enhance-btn" id="flipV" title="Flip vertical (⇅)">⇅</button>' +
+            '</div>' +
             '</div>' +
             '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
             '<div class="canvas-dimensions" id="canvasDimensions"></div>' +
@@ -1142,12 +1154,24 @@ function renderNDArray(name, value) {
             '<button class="canvas-zoom-btn" id="canvasZoomReset" title="Reset zoom" style="font-size:12px;">1:1</button>' +
             '</div>' +
             '<div class="image-enhance-controls">' +
-            '<label>Window:</label><input type="range" id="windowLevel" min="0" max="100" value="50" data-action="windowLevel">' +
-            '<label>Level:</label><input type="range" id="windowWidth" min="1" max="100" value="100" data-action="windowWidth">' +
-            '<button class="canvas-zoom-btn" id="rotateLeft" title="Rotate left">↺</button>' +
-            '<button class="canvas-zoom-btn" id="rotateRight" title="Rotate right">↻</button>' +
-            '<button class="canvas-zoom-btn" id="flipH" title="Flip horizontal">⇄</button>' +
-            '<button class="canvas-zoom-btn" id="flipV" title="Flip vertical">⇅</button>' +
+            '<div class="enhance-row">' +
+            '<div class="enhance-group">' +
+            '<label>Window</label>' +
+            '<input type="range" id="windowLevel" min="0" max="100" value="' + Math.round(state.windowLevel * 100) + '" data-action="windowLevel">' +
+            '<span class="enhance-value" id="windowLevelValue">' + Math.round(state.windowLevel * 100) + '%</span>' +
+            '</div>' +
+            '<div class="enhance-group">' +
+            '<label>Level</label>' +
+            '<input type="range" id="windowWidth" min="1" max="100" value="' + Math.round(state.windowWidth * 100) + '" data-action="windowWidth">' +
+            '<span class="enhance-value" id="windowWidthValue">' + Math.round(state.windowWidth * 100) + '%</span>' +
+            '</div>' +
+            '</div>' +
+            '<div class="enhance-row enhance-buttons">' +
+            '<button class="enhance-btn" id="rotateLeft" title="Rotate left (↺)">↺</button>' +
+            '<button class="enhance-btn" id="rotateRight" title="Rotate right (↻)">↻</button>' +
+            '<button class="enhance-btn" id="flipH" title="Flip horizontal (⇄)">⇄</button>' +
+            '<button class="enhance-btn" id="flipV" title="Flip vertical (⇅)">⇅</button>' +
+            '</div>' +
             '</div>' +
             '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
             '<div class="canvas-dimensions" id="canvasDimensions"></div>' +
@@ -1332,12 +1356,19 @@ function setColormap(colormap) {
 function updateWindowLevel() {
     var levelEl = document.getElementById('windowLevel');
     var widthEl = document.getElementById('windowWidth');
+    var levelValEl = document.getElementById('windowLevelValue');
+    var widthValEl = document.getElementById('windowWidthValue');
     if (!levelEl || !widthEl) return;
     state.windowLevel = parseInt(levelEl.value) / 100;
     state.windowWidth = parseInt(widthEl.value) / 100;
+    if (levelValEl) levelValEl.textContent = Math.round(state.windowLevel * 100) + '%';
+    if (widthValEl) widthValEl.textContent = Math.round(state.windowWidth * 100) + '%';
     state.dirty = true;
     if (state.fullVariableData && state.currentVariableData) {
-        mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+        var sliceData = state.fullVariableData.shape.length >= 3
+            ? get3DSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode)
+            : get2DSlice(state.fullVariableData, state.currentViewMode);
+        scheduleCanvasRender(sliceData);
     }
 }
 

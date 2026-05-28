@@ -292,23 +292,71 @@ body {
     top: 12px;
     right: 12px;
     display: flex;
-    gap: 6px;
-    align-items: center;
+    flex-direction: column;
+    gap: 8px;
     background: var(--vscode-editorWidget-background);
-    padding: 6px 10px;
-    border-radius: 8px;
+    padding: 12px 14px;
+    border-radius: 10px;
     border: 1px solid var(--vscode-panel-border);
     z-index: 10;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    flex-wrap: wrap;
-    max-width: 200px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    min-width: 160px;
 }
-.image-enhance-controls label {
+.enhance-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+.enhance-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+.enhance-group label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--vscode-descriptionForeground);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.enhance-group input[type="range"] {
+    width: 100%;
+    min-width: 80px;
+    cursor: pointer;
+}
+.enhance-value {
     font-size: 11px;
     color: var(--vscode-descriptionForeground);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
 }
-.image-enhance-controls input[type="range"] {
-    width: 80px;
+.enhance-buttons {
+    justify-content: center;
+    gap: 6px;
+    padding-top: 4px;
+    border-top: 1px solid var(--vscode-panel-border);
+}
+.enhance-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+.enhance-btn:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+    border-color: var(--vscode-focusBorder);
+}
+.enhance-btn:active {
+    transform: scale(0.95);
 }
 .canvas-zoom-btn {
     width: 32px;
