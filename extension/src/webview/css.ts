@@ -274,17 +274,41 @@ body {
     transition: width 0.15s ease, height 0.15s ease;
 }
 .canvas-zoom-controls {
+    position: absolute;
+    top: 12px;
+    left: 12px;
     display: flex;
+    gap: 6px;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 16px;
-    padding: 8px 16px;
-    background: var(--vscode-list-hoverBackground);
+    background: var(--vscode-editorWidget-background);
+    padding: 6px 10px;
     border-radius: 8px;
-    width: fit-content;
-    margin-left: auto;
-    margin-right: auto;
+    border: 1px solid var(--vscode-panel-border);
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.image-enhance-controls {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    background: var(--vscode-editorWidget-background);
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--vscode-panel-border);
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    flex-wrap: wrap;
+    max-width: 200px;
+}
+.image-enhance-controls label {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+}
+.image-enhance-controls input[type="range"] {
+    width: 80px;
 }
 .canvas-zoom-btn {
     width: 32px;
@@ -728,6 +752,28 @@ body {
     background: var(--vscode-list-hoverBackground);
     color: var(--vscode-editor-foreground);
 }
+.sidebar-search {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    flex-shrink: 0;
+}
+.sidebar-search input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.sidebar-search input:focus {
+    border-color: var(--vscode-focusBorder);
+}
+.sidebar-search input::placeholder {
+    color: var(--vscode-input-placeholderForeground);
+}
 .sidebar-content {
     flex: 1;
     overflow-y: auto;
@@ -823,6 +869,12 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
+}
+.sidebar-tree-name mark {
+    background: var(--vscode-editor-findMatchHighlightBackground);
+    color: var(--vscode-editor-foreground);
+    border-radius: 2px;
+    padding: 0 1px;
 }
 .sidebar-tree-type {
     font-size: 10px;

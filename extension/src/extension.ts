@@ -3,7 +3,7 @@ import { MatFileEditorProvider } from './providers/CustomEditorProvider';
 import { MatVariableTreeDataProvider, setCurrentData, setCurrentWebviewPanel, showVariable } from './providers/MatVariableTreeDataProvider';
 import { PythonBridge, DependencyCheckResult } from './ipc/PythonBridge';
 import { openFileCommand } from './commands/openFile';
-import { exportCSVCommand, exportJSONCommand } from './commands/exportData';
+import { exportCSVCommand, exportJSONCommand, exportNPYCommand, exportPNGCommand } from './commands/exportData';
 import { installDepsCommand, testEnvironmentCommand } from './commands/walkthroughCommands';
 import { MatFileData } from './types';
 
@@ -15,6 +15,7 @@ const fileDataCache = new Map<string, MatFileData>();
 let currentPythonBridge: PythonBridge | null = null;
 let currentWebviewPanel: vscode.WebviewPanel | null = null;
 let currentSetupPanel: vscode.WebviewPanel | null = null;
+let statusBarItem: vscode.StatusBarItem | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     currentPythonBridge = new PythonBridge(context);
@@ -28,6 +29,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     registerTreeDataProvider(context);
     registerCommands(context);
     registerEventHandlers(context);
+    registerStatusBar(context);
 
     await checkAndShowWelcome(context);
 }
@@ -259,6 +261,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('matrixspy.openFile', openFileCommand),
         vscode.commands.registerCommand('matrixspy.exportCSV', () => exportCSVCommand()),
         vscode.commands.registerCommand('matrixspy.exportJSON', () => exportJSONCommand()),
+        vscode.commands.registerCommand('matrixspy.exportNPY', () => exportNPYCommand()),
+        vscode.commands.registerCommand('matrixspy.exportPNG', () => exportPNGCommand()),
         vscode.commands.registerCommand('matrixspy.refreshVariables', async () => {
             const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
             if (tab?.input instanceof vscode.TabInputCustom && tab.input.viewType === 'matrixspy.matFile') {
@@ -326,8 +330,48 @@ function registerEventHandlers(context: vscode.ExtensionContext): void {
     );
 }
 
-export function cacheFileData(filePath: string, data: MatFileData): void {
-    fileDataCache.set(filePath, data);
+function registerStatusBar(context: vscode.ExtensionContext): void {
+    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    statusBarItem.text = '$(symbol-array) MatrixSpy';
+    statusBarItem.tooltip = 'MatrixSpy: No active MAT file';
+    statusBarItem.command = 'matrixspy.showSetupWizard';
+    statusBarItem.show();
+    context.subscriptions.push(statusBarItem);
+}
+
+export function updateStatusBar(fileName: string | null, varCount: number, activeVar: string | null, varInfo: { shape?: number[]; dtype?: string; memory_mb?: number } | null): void {
+    if (!statusBarItem) return;
+
+    if (!fileName) {
+        statusBarItem.text = '$(symbol-array) MatrixSpy';
+        statusBarItem.tooltip = 'MatrixSpy: No active MAT file';
+        return;
+    }
+
+    let text = `$(symbol-array) ${fileName}`;
+    if (varCount > 0) {
+        text += ` | ${varCount} vars`;
+    }
+    if (activeVar && varInfo) {
+        const shapeStr = varInfo.shape ? varInfo.shape.join('\u00D7') : '';
+        const dtypeStr = varInfo.dtype || '';
+        const memStr = varInfo.memory_mb ? `${varInfo.memory_mb.toFixed(1)} MB` : '';
+        text += ` | ${activeVar}`;
+        if (shapeStr) text += ` [${shapeStr}`;
+        if (dtypeStr) text += ` ${dtypeStr}`;
+        if (memStr) text += ` | ${memStr}`;
+        if (shapeStr) text += `]`;
+    }
+
+    statusBarItem.text = text;
+    statusBarItem.tooltip = `MatrixSpy: ${fileName}\nVariables: ${varCount}\n${activeVar ? 'Active: ' + activeVar : ''}`;
+}
+
+export function cacheFileData(filePath: string, data?: MatFileData): MatFileData | undefined {
+    if (data !== undefined) {
+        fileDataCache.set(filePath, data);
+    }
+    return fileDataCache.get(filePath);
 }
 
 export function getFileDataCache(): Map<string, MatFileData> {

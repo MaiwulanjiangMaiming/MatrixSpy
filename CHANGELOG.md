@@ -2,6 +2,28 @@
 
 All notable changes to MatrixSpy will be documented in this file.
 
+## Versioning Convention
+
+- **Bug fixes**: z + 1 (e.g., 1.2.1 → 1.2.2)
+- **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
+- **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
+
+## [1.3.0] - 2026-05-24
+
+### Added
+
+- **9 new colormaps**: Hot, Jet, Turbo, Coolwarm, RdBu — in addition to existing Grayscale, Viridis, Inferno, Plasma. All precomputed as LUT for zero performance cost
+- **Keyboard shortcuts**: Arrow keys / `[` `]` for slice navigation, `+` `-` `0` for zoom, `T`/`I` for view mode toggle, `C`/`Shift+C` for colormap cycling
+- **Status bar integration**: Displays current file name, variable count, active variable name, shape, dtype, and memory usage in the VS Code status bar
+- **Variable search & filter**: Search box in the sidebar with fuzzy name matching and `type:` prefix filtering (e.g., `type:struct`). Matching text is highlighted
+- **Image enhancement controls**: Window/Level sliders for contrast stretching, rotate left/right buttons (90° increments), horizontal/vertical flip buttons
+- **New export formats**: NumPy `.npy` (binary) and `.png` (grayscale image) export, in addition to existing CSV and JSON
+
+### Changed
+
+- Export commands now support 4 formats: CSV, JSON, NPY, PNG
+- Sidebar tree items highlight matched search terms with `<mark>` styling
+
 ## [1.2.1] - 2026-05-15
 
 ### Architecture

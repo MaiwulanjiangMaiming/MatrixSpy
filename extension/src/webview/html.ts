@@ -20,6 +20,9 @@ export function getHtml(version: string): string {
                 <span class="sidebar-title">Variables</span>
                 <button class="sidebar-toggle" id="sidebarToggle" title="Hide sidebar">◀</button>
             </div>
+            <div class="sidebar-search">
+                <input type="text" id="sidebarSearch" placeholder="🔍 Search variables..." />
+            </div>
             <div class="sidebar-content" id="sidebarContent">
                 <div style="padding: 20px; color: var(--vscode-descriptionForeground); font-size: 13px;">
                     Loading variables...

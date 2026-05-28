@@ -37,7 +37,9 @@ const state = {
     currentColormap: localStorage.getItem('matViewerColormap') || 'grayscale',
     expandedPaths: {},
     dirty: false,
-    canvasScale: null
+    canvasScale: null,
+    windowLevel: 0.5,
+    windowWidth: 1.0
 };
 
 function buildLUT(keyPoints) {
@@ -100,6 +102,61 @@ var COLORMAPS = {
             [1.0, 240, 249, 33]
         ]);
         return function(t) { return lut[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
+    })(),
+    hot: (function() {
+        var lut = buildLUT([
+            [0.0, 0, 0, 0], [0.07, 32, 0, 0], [0.13, 64, 0, 0],
+            [0.2, 96, 0, 0], [0.27, 128, 0, 0], [0.33, 160, 0, 0],
+            [0.4, 192, 0, 0], [0.47, 224, 0, 0], [0.53, 255, 0, 0],
+            [0.6, 255, 32, 0], [0.67, 255, 64, 0], [0.73, 255, 96, 0],
+            [0.8, 255, 128, 0], [0.87, 255, 160, 0], [0.93, 255, 192, 0],
+            [1.0, 255, 255, 255]
+        ]);
+        return function(t) { return lut[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
+    })(),
+    jet: (function() {
+        var lut = buildLUT([
+            [0.0, 0, 0, 128], [0.07, 0, 0, 255], [0.13, 0, 64, 255],
+            [0.2, 0, 128, 255], [0.27, 0, 192, 255], [0.33, 0, 255, 255],
+            [0.4, 64, 255, 192], [0.47, 128, 255, 128], [0.53, 192, 255, 64],
+            [0.6, 255, 255, 0], [0.67, 255, 192, 0], [0.73, 255, 128, 0],
+            [0.8, 255, 64, 0], [0.87, 255, 0, 0], [0.93, 192, 0, 0],
+            [1.0, 128, 0, 0]
+        ]);
+        return function(t) { return lut[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
+    })(),
+    turbo: (function() {
+        var lut = buildLUT([
+            [0.0, 48, 18, 59], [0.07, 64, 37, 105], [0.13, 80, 60, 140],
+            [0.2, 96, 85, 168], [0.27, 112, 110, 190], [0.33, 128, 135, 206],
+            [0.4, 148, 160, 216], [0.47, 172, 185, 220], [0.53, 196, 208, 216],
+            [0.6, 220, 228, 200], [0.67, 232, 236, 164], [0.73, 236, 228, 116],
+            [0.8, 232, 208, 72], [0.87, 220, 176, 40], [0.93, 200, 136, 20],
+            [1.0, 144, 78, 20]
+        ]);
+        return function(t) { return lut[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
+    })(),
+    coolwarm: (function() {
+        var lut = buildLUT([
+            [0.0, 59, 76, 192], [0.07, 80, 100, 200], [0.13, 100, 124, 208],
+            [0.2, 120, 148, 216], [0.27, 140, 172, 224], [0.33, 160, 196, 232],
+            [0.4, 180, 216, 236], [0.47, 200, 228, 236], [0.53, 236, 228, 216],
+            [0.6, 236, 208, 180], [0.67, 232, 184, 140], [0.73, 224, 156, 100],
+            [0.8, 216, 128, 64], [0.87, 208, 100, 32], [0.93, 200, 72, 12],
+            [1.0, 180, 4, 38]
+        ]);
+        return function(t) { return lut[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
+    })(),
+    rdbu: (function() {
+        var lut = buildLUT([
+            [0.0, 103, 0, 31], [0.07, 140, 20, 48], [0.13, 176, 44, 68],
+            [0.2, 208, 72, 92], [0.27, 232, 104, 120], [0.33, 248, 140, 156],
+            [0.4, 252, 180, 192], [0.47, 252, 216, 224], [0.53, 224, 236, 240],
+            [0.6, 180, 224, 232], [0.67, 132, 200, 216], [0.73, 88, 172, 196],
+            [0.8, 48, 140, 172], [0.87, 20, 104, 144], [0.93, 4, 68, 112],
+            [1.0, 5, 48, 97]
+        ]);
+        return function(t) { return lut[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
     })()
 };
 
@@ -146,7 +203,7 @@ function getVariableIcon(value) {
     return '\\u{2753}';
 }
 
-function renderSidebar(data) {
+function renderSidebar(data, filterText) {
     if (!data || typeof data !== 'object') {
         sidebarContent.innerHTML = '<div class="sidebar-empty">No variables</div>';
         return;
@@ -155,17 +212,37 @@ function renderSidebar(data) {
     state.currentFileData = data;
     var varNames = Object.keys(data).sort();
 
+    var filter = filterText ? filterText.toLowerCase().trim() : '';
+    var filterType = '';
+    if (filter.startsWith('type:')) {
+        filterType = filter.substring(5).trim();
+        filter = '';
+    }
+
     var html = '';
+    var matchCount = 0;
     varNames.forEach(function(name) {
-        html += renderTreeItem(name, data[name], name, 0);
+        var value = data[name];
+        var typeStr = formatType(value).toLowerCase();
+        var nameMatch = !filter || name.toLowerCase().indexOf(filter) !== -1;
+        var typeMatch = !filterType || typeStr.indexOf(filterType) !== -1;
+
+        if (nameMatch && typeMatch) {
+            html += renderTreeItem(name, value, name, 0, filter);
+            matchCount++;
+        }
     });
+
+    if (matchCount === 0) {
+        html = '<div class="sidebar-empty">No matching variables</div>';
+    }
 
     sidebarContent.innerHTML = html;
 
     attachTreeEventListeners();
 }
 
-function renderTreeItem(name, value, path, depth) {
+function renderTreeItem(name, value, path, depth, highlightText) {
     var type = formatType(value);
     var icon = getVariableIcon(value);
     var isActive = state.currentActiveVariable === path;
@@ -174,6 +251,14 @@ function renderTreeItem(name, value, path, depth) {
 
     var hasChildren = isStruct && Object.keys(value).some(function(k) { return k !== '_type'; });
     var childKeys = hasChildren ? Object.keys(value).filter(function(k) { return k !== '_type'; }).sort() : [];
+
+    var displayName = escapeHtml(name);
+    if (highlightText) {
+        var idx = name.toLowerCase().indexOf(highlightText.toLowerCase());
+        if (idx !== -1) {
+            displayName = escapeHtml(name.substring(0, idx)) + '<mark>' + escapeHtml(name.substring(idx, idx + highlightText.length)) + '</mark>' + escapeHtml(name.substring(idx + highlightText.length));
+        }
+    }
 
     var html = '<div class="sidebar-tree-item' + (isActive ? ' active' : '') + '" data-path="' + escapeHtml(path) + '" data-depth="' + depth + '">';
 
@@ -184,7 +269,7 @@ function renderTreeItem(name, value, path, depth) {
     }
 
     html += '<span class="sidebar-tree-icon">' + icon + '</span>';
-    html += '<span class="sidebar-tree-name">' + escapeHtml(name) + '</span>';
+    html += '<span class="sidebar-tree-name">' + displayName + '</span>';
 
     if (value && value._type === 'ndarray' && value.shape.length === 1 && value.data) {
         html += '<span class="sidebar-tree-shape">' + renderSparkline(value.data) + '</span>';
@@ -197,7 +282,7 @@ function renderTreeItem(name, value, path, depth) {
         html += '<div class="sidebar-tree-children expanded">';
         childKeys.forEach(function(childKey) {
             var childPath = path + '.' + childKey;
-            html += renderTreeItem(childKey, value[childKey], childPath, depth + 1);
+            html += renderTreeItem(childKey, value[childKey], childPath, depth + 1, highlightText);
         });
         html += '</div>';
     }
@@ -218,7 +303,8 @@ function attachTreeEventListeners() {
                 state.expandedPaths[path] = true;
             }
 
-            renderSidebar(state.currentFileData);
+            var searchFilter = sidebarSearch ? sidebarSearch.value : '';
+            renderSidebar(state.currentFileData, searchFilter);
         });
     });
 
@@ -258,7 +344,22 @@ function selectTreeItem(path) {
     state.currentSlice = 0;
     state.currentLoadedSliceData = null;
     state.canvasScale = null;
+    canvasTransformState = { rotation: 0, flipH: false, flipV: false };
     state.dirty = true;
+
+    var varInfo = null;
+    if (value && typeof value === 'object') {
+        varInfo = {
+            shape: value.shape || null,
+            dtype: value.dtype || null,
+            memory_mb: value.stats && value.stats.memory_mb ? value.stats.memory_mb : null
+        };
+    }
+    vscode.postMessage({
+        command: 'variableSelected',
+        variableName: path,
+        varInfo: varInfo
+    });
 
     mainContent.innerHTML = renderPreview(parts[parts.length - 1], value);
 
@@ -476,6 +577,30 @@ function resetCanvasZoom() {
     updateCanvasZoomDisplay();
 }
 
+var canvasTransformState = { rotation: 0, flipH: false, flipV: false };
+
+function rotateCanvas(deg) {
+    canvasTransformState.rotation = (canvasTransformState.rotation + deg) % 360;
+    applyCanvasTransform();
+}
+
+function flipCanvas(direction) {
+    if (direction === 'horizontal') canvasTransformState.flipH = !canvasTransformState.flipH;
+    if (direction === 'vertical') canvasTransformState.flipV = !canvasTransformState.flipV;
+    applyCanvasTransform();
+}
+
+function applyCanvasTransform() {
+    var canvas = document.getElementById('imageCanvas');
+    if (!canvas) return;
+    var transform = '';
+    if (canvasTransformState.rotation !== 0) transform += 'rotate(' + canvasTransformState.rotation + 'deg) ';
+    if (canvasTransformState.flipH) transform += 'scaleX(-1) ';
+    if (canvasTransformState.flipV) transform += 'scaleY(-1) ';
+    canvas.style.transform = transform.trim();
+    canvas.style.transformOrigin = 'center center';
+}
+
 function renderImageToCanvas(data) {
     if (!state.dirty) return;
     state.dirty = false;
@@ -531,6 +656,12 @@ function renderImageToCanvas(data) {
     var range = max - min || 1;
     var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
 
+    var windowCenter = min + range * state.windowLevel;
+    var windowHalf = range * state.windowWidth * 0.5;
+    var windowMin = windowCenter - windowHalf;
+    var windowMax = windowCenter + windowHalf;
+    var windowRange = windowMax - windowMin || 1;
+
     if (totalElements > 1000000) {
         var currentRow = 0;
         var CHUNK_SIZE = 100;
@@ -540,7 +671,8 @@ function renderImageToCanvas(data) {
             for (var cy = currentRow; cy < endRow; cy++) {
                 for (var cx = 0; cx < width; cx++) {
                     var cval = data[cy][cx];
-                    var cnorm = cval !== null && cval !== undefined ? (cval - min) / range : 0;
+                    var cnorm = cval !== null && cval !== undefined ? (cval - windowMin) / windowRange : 0;
+                    cnorm = Math.max(0, Math.min(1, cnorm));
                     var crgb = colormap(cnorm);
                     var cidx = (cy * width + cx) * 4;
                     imageData.data[cidx] = crgb[0];
@@ -562,7 +694,8 @@ function renderImageToCanvas(data) {
         for (var ny = 0; ny < height; ny++) {
             for (var nx = 0; nx < width; nx++) {
                 var nval = data[ny][nx];
-                var nnorm = nval !== null && nval !== undefined ? (nval - min) / range : 0;
+                var nnorm = nval !== null && nval !== undefined ? (nval - windowMin) / windowRange : 0;
+                nnorm = Math.max(0, Math.min(1, nnorm));
                 var nrgb = colormap(nnorm);
                 var nidx = (ny * width + nx) * 4;
                 imageData.data[nidx] = nrgb[0];
@@ -896,6 +1029,16 @@ function render2DArray(name, value) {
             '<option value="viridis"' + (state.currentColormap === 'viridis' ? ' selected' : '') + '>Viridis</option>' +
             '<option value="inferno"' + (state.currentColormap === 'inferno' ? ' selected' : '') + '>Inferno</option>' +
             '<option value="plasma"' + (state.currentColormap === 'plasma' ? ' selected' : '') + '>Plasma</option>' +
+            '<option value="hot"' + (state.currentColormap === 'hot' ? ' selected' : '') + '>Hot</option>' +
+            '<option value="jet"' + (state.currentColormap === 'jet' ? ' selected' : '') + '>Jet</option>' +
+            '<option value="turbo"' + (state.currentColormap === 'turbo' ? ' selected' : '') + '>Turbo</option>' +
+            '<option value="coolwarm"' + (state.currentColormap === 'coolwarm' ? ' selected' : '') + '>Coolwarm</option>' +
+            '<option value="rdbu"' + (state.currentColormap === 'rdbu' ? ' selected' : '') + '>RdBu</option>' +
+            '<option value="hot"' + (state.currentColormap === 'hot' ? ' selected' : '') + '>Hot</option>' +
+            '<option value="jet"' + (state.currentColormap === 'jet' ? ' selected' : '') + '>Jet</option>' +
+            '<option value="turbo"' + (state.currentColormap === 'turbo' ? ' selected' : '') + '>Turbo</option>' +
+            '<option value="coolwarm"' + (state.currentColormap === 'coolwarm' ? ' selected' : '') + '>Coolwarm</option>' +
+            '<option value="rdbu"' + (state.currentColormap === 'rdbu' ? ' selected' : '') + '>RdBu</option>' +
             '</select>' +
             '</div>';
 
@@ -905,6 +1048,14 @@ function render2DArray(name, value) {
             '<span class="canvas-zoom-level" id="canvasZoomLevel">100%</span>' +
             '<button class="canvas-zoom-btn" id="canvasZoomIn" title="Zoom in">+</button>' +
             '<button class="canvas-zoom-btn" id="canvasZoomReset" title="Reset zoom" style="font-size:12px;">1:1</button>' +
+            '</div>' +
+            '<div class="image-enhance-controls">' +
+            '<label>Window:</label><input type="range" id="windowLevel" min="0" max="100" value="50" data-action="windowLevel">' +
+            '<label>Level:</label><input type="range" id="windowWidth" min="1" max="100" value="100" data-action="windowWidth">' +
+            '<button class="canvas-zoom-btn" id="rotateLeft" title="Rotate left">↺</button>' +
+            '<button class="canvas-zoom-btn" id="rotateRight" title="Rotate right">↻</button>' +
+            '<button class="canvas-zoom-btn" id="flipH" title="Flip horizontal">⇄</button>' +
+            '<button class="canvas-zoom-btn" id="flipV" title="Flip vertical">⇅</button>' +
             '</div>' +
             '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
             '<div class="canvas-dimensions" id="canvasDimensions"></div>' +
@@ -989,6 +1140,14 @@ function renderNDArray(name, value) {
             '<span class="canvas-zoom-level" id="canvasZoomLevel">100%</span>' +
             '<button class="canvas-zoom-btn" id="canvasZoomIn" title="Zoom in">+</button>' +
             '<button class="canvas-zoom-btn" id="canvasZoomReset" title="Reset zoom" style="font-size:12px;">1:1</button>' +
+            '</div>' +
+            '<div class="image-enhance-controls">' +
+            '<label>Window:</label><input type="range" id="windowLevel" min="0" max="100" value="50" data-action="windowLevel">' +
+            '<label>Level:</label><input type="range" id="windowWidth" min="1" max="100" value="100" data-action="windowWidth">' +
+            '<button class="canvas-zoom-btn" id="rotateLeft" title="Rotate left">↺</button>' +
+            '<button class="canvas-zoom-btn" id="rotateRight" title="Rotate right">↻</button>' +
+            '<button class="canvas-zoom-btn" id="flipH" title="Flip horizontal">⇄</button>' +
+            '<button class="canvas-zoom-btn" id="flipV" title="Flip vertical">⇅</button>' +
             '</div>' +
             '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
             '<div class="canvas-dimensions" id="canvasDimensions"></div>' +
@@ -1170,6 +1329,18 @@ function setColormap(colormap) {
     }
 }
 
+function updateWindowLevel() {
+    var levelEl = document.getElementById('windowLevel');
+    var widthEl = document.getElementById('windowWidth');
+    if (!levelEl || !widthEl) return;
+    state.windowLevel = parseInt(levelEl.value) / 100;
+    state.windowWidth = parseInt(widthEl.value) / 100;
+    state.dirty = true;
+    if (state.fullVariableData && state.currentVariableData) {
+        mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+    }
+}
+
 function handleMessage(event) {
     var message = event.data;
 
@@ -1186,7 +1357,8 @@ function handleMessage(event) {
         fileInfo.textContent = (matData.version || 'v?') + ' \\u00B7 ' + (matData.file_path || '');
 
         state.currentActiveVariable = null;
-        renderSidebar(matData.data);
+        var searchFilter = sidebarSearch ? sidebarSearch.value : '';
+        renderSidebar(matData.data, searchFilter);
 
         var varNames = Object.keys(matData.data).sort();
         var html = '<div class="success">';
@@ -1310,6 +1482,10 @@ document.addEventListener('click', function(e) {
                 mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
             }
             break;
+        case 'windowLevel':
+        case 'windowWidth':
+            updateWindowLevel();
+            break;
     }
 });
 
@@ -1354,6 +1530,14 @@ document.addEventListener('click', function(e) {
         zoomCanvas(1 / 1.5);
     } else if (target.id === 'canvasZoomReset') {
         resetCanvasZoom();
+    } else if (target.id === 'rotateLeft') {
+        rotateCanvas(-90);
+    } else if (target.id === 'rotateRight') {
+        rotateCanvas(90);
+    } else if (target.id === 'flipH') {
+        flipCanvas('horizontal');
+    } else if (target.id === 'flipV') {
+        flipCanvas('vertical');
     }
 });
 
@@ -1381,6 +1565,109 @@ if (savedSidebarCollapsed === 'true') {
     sidebar.classList.add('collapsed');
     headerToggle.classList.add('visible');
 }
+
+var sidebarSearch = document.getElementById('sidebarSearch');
+if (sidebarSearch) {
+    sidebarSearch.addEventListener('input', function(e) {
+        var filterText = e.target.value;
+        if (state.currentFileData) {
+            renderSidebar(state.currentFileData, filterText);
+        }
+    });
+}
+
+var COLORMAP_LIST = ['grayscale', 'viridis', 'inferno', 'plasma', 'hot', 'jet', 'turbo', 'coolwarm', 'rdbu'];
+
+function getNextColormap(direction) {
+    var idx = COLORMAP_LIST.indexOf(state.currentColormap);
+    if (idx === -1) idx = 0;
+    idx = (idx + direction + COLORMAP_LIST.length) % COLORMAP_LIST.length;
+    return COLORMAP_LIST[idx];
+}
+
+function switchDisplayMode() {
+    state.currentDisplayMode = state.currentDisplayMode === 'image' ? 'table' : 'image';
+    state.dirty = true;
+    localStorage.setItem('matViewerDisplayMode', state.currentDisplayMode);
+    if (state.fullVariableData && state.currentVariableData) {
+        mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+    }
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    if (settingsPanel.classList.contains('open')) return;
+
+    var handled = false;
+    switch (e.key) {
+        case '+':
+        case '=':
+            zoomCanvas(1.5);
+            handled = true;
+            break;
+        case '-':
+        case '_':
+            zoomCanvas(1 / 1.5);
+            handled = true;
+            break;
+        case '0':
+            resetCanvasZoom();
+            handled = true;
+            break;
+        case 'ArrowRight':
+        case ']':
+            if (state.fullVariableData && state.fullVariableData.shape && state.fullVariableData.shape.length >= 3) {
+                var maxSlice = state.fullVariableData.shape[state.currentAxis] - 1;
+                if (state.currentSlice < maxSlice) {
+                    updateSlice(state.currentSlice + 1);
+                    var slider = document.getElementById('sliceSlider');
+                    if (slider) slider.value = state.currentSlice;
+                }
+                handled = true;
+            }
+            break;
+        case 'ArrowLeft':
+        case '[':
+            if (state.fullVariableData && state.fullVariableData.shape && state.fullVariableData.shape.length >= 3) {
+                if (state.currentSlice > 0) {
+                    updateSlice(state.currentSlice - 1);
+                    var slider = document.getElementById('sliceSlider');
+                    if (slider) slider.value = state.currentSlice;
+                }
+                handled = true;
+            }
+            break;
+        case 't':
+        case 'T':
+            switchDisplayMode();
+            handled = true;
+            break;
+        case 'i':
+        case 'I':
+            if (state.currentDisplayMode !== 'image') {
+                state.currentDisplayMode = 'image';
+                state.dirty = true;
+                localStorage.setItem('matViewerDisplayMode', 'image');
+                if (state.fullVariableData && state.currentVariableData) {
+                    mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+                }
+            }
+            handled = true;
+            break;
+        case 'c':
+        case 'C':
+            var nextCmap = getNextColormap(e.shiftKey ? -1 : 1);
+            setColormap(nextCmap);
+            var select = document.getElementById('colormapSelect');
+            if (select) select.value = nextCmap;
+            handled = true;
+            break;
+    }
+    if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+});
 
 window.addEventListener('message', handleMessage);
 `;

@@ -6,7 +6,7 @@ Author: Maiwulanjiang Maiming
 
 import * as vscode from 'vscode';
 import { PythonBridge } from '../ipc/PythonBridge';
-import { updateTreeData, updateCurrentWebviewPanel, cacheFileData } from '../extension';
+import { updateTreeData, updateCurrentWebviewPanel, cacheFileData, updateStatusBar } from '../extension';
 import { getHtml } from '../webview/html';
 
 export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvider {
@@ -78,7 +78,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
     }
 
     private createMessageHandler(filePath: string, webviewPanel: vscode.WebviewPanel) {
-        return async (message: { command?: string; variableName?: string; axis?: number; index?: number; url?: string }) => {
+        return async (message: { command?: string; variableName?: string; axis?: number; index?: number; url?: string; varInfo?: { shape?: number[]; dtype?: string; memory_mb?: number } }) => {
             if (message.command === 'loadSlice') {
                 try {
                     const sliceResult = await this.pythonBridge.loadSlice(
@@ -106,6 +106,11 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
                 }
             } else if (message.command === 'openExternal' && message.url) {
                 vscode.env.openExternal(vscode.Uri.parse(message.url));
+            } else if (message.command === 'variableSelected' && message.variableName) {
+                const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+                const cachedData = cacheFileData(filePath);
+                const varCount = cachedData ? Object.keys(cachedData).length : 0;
+                updateStatusBar(fileName, varCount, message.variableName, message.varInfo || null);
             }
         };
     }
@@ -119,6 +124,9 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             if (result.success && result.data) {
                 cacheFileData(filePath, result.data);
                 updateTreeData(result.data);
+                const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+                const varCount = Object.keys(result.data).length;
+                updateStatusBar(fileName, varCount, null, null);
             }
 
             webviewPanel.webview.postMessage({
