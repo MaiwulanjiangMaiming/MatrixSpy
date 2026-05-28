@@ -264,6 +264,7 @@ body {
     overflow: auto;
     max-height: 600px;
     position: relative;
+    padding-top: 60px;
 }
 .image-canvas {
     image-rendering: pixelated;
