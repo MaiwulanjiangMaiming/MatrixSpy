@@ -13,7 +13,7 @@
   </a>
 </p>
 
-A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.mat` files. Supports all MAT versions (v4–v7.3), interactive tensor visualization with zoom controls, and export to CSV/JSON.
+A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.mat` files. Supports all MAT versions (v4–v7.3), interactive tensor visualization with zoom controls, and export to CSV/JSON/NumPy/PNG.
 
 ## Features
 
@@ -23,28 +23,19 @@ A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.
   - 2D matrices as heatmaps or tables
   - 3D/4D+ tensors with slice viewer and zoom controls
   - Complex numbers: Magnitude / Phase / Real / Imag
+- **9 Colormaps**: Grayscale, Viridis, Inferno, Plasma, Hot, Jet, Turbo, Coolwarm, RdBu
+- **Keyboard shortcuts**: Arrow keys for slices, +/- for zoom, T/I for view mode, C for colormap
+- **Image enhancement**: Window/Level contrast, rotate, flip horizontal/vertical
+- **Variable search & filter**: Search box in sidebar with type: prefix filtering
+- **Status bar**: Shows file name, variable count, active variable shape/dtype/memory
 - **Zoom controls** for image mode: +/- buttons, 1:1 reset, adaptive sizing
 - **Zoom persistence**: zoom level kept when switching slices/axis/view mode
 - **Tree view** for variable navigation with expandable structs
 - **Lazy loading** for large 3D tensors and HDF5 datasets
-- **Export**: CSV, JSON
-- **Colormaps**: Grayscale, Viridis, Inferno, Plasma
+- **Export**: CSV, JSON, NumPy NPY, PNG Image
 - **Setup wizard** with automatic dependency detection
 
-## Installation
-
-### From VS Code Marketplace
-
-Search for **"MatrixSpy"** in the Extensions view (`Cmd+Shift+X`)
-
-### From VSIX File
-
-1. Download the `.vsix` file from [Releases](https://github.com/MaiwulanjiangMaiming/MatrixSpy/releases)
-2. Open VS Code → Extensions (`Cmd+Shift+X`)
-3. Click "..." menu → **"Install from VSIX"**
-4. Select the downloaded file
-
-### Prerequisites
+## Prerequisites
 
 **Python 3.8+** with:
 
@@ -65,6 +56,7 @@ The extension checks dependencies on first launch and guides you through install
 ### Navigation
 
 - **Sidebar**: Browse all variables, expand structs, click to view
+- **Search box**: Filter variables by name or type (e.g., `type:struct`)
 - **Tree items**: Expand/collapse nested structures
 
 ### Visualization
@@ -84,12 +76,29 @@ When viewing tensors in Image mode:
 
 - **+ / -**: Zoom in/out (1.5x per click)
 - **1:1**: Reset to adaptive size
+- **Window/Level**: Adjust contrast range with sliders
+- **Rotate**: ↺ / ↻ buttons (90° increments)
+- **Flip**: ⇄ horizontal / ⇅ vertical
 - **Zoom persistence**: zoom level is kept when switching slices
 - **Adaptive sizing**: small tensors auto-upscaled, large tensors fit container
 
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `←` / `[` | Previous slice |
+| `→` / `]` | Next slice |
+| `+` / `=` | Zoom in |
+| `-` / `_` | Zoom out |
+| `0` | Reset zoom |
+| `T` | Toggle Image/Table view |
+| `I` | Switch to Image view |
+| `C` | Next colormap |
+| `Shift+C` | Previous colormap |
+
 ### Export
 
-- Command Palette → "MatrixSpy: Export to CSV" / "Export to JSON"
+- Command Palette → "MatrixSpy: Export to CSV" / "Export to JSON" / "Export to NumPy" / "Export to PNG"
 
 ## Configuration
 
@@ -100,72 +109,30 @@ When viewing tensors in Image mode:
 }
 ```
 
-## Architecture
-
-```
-MatrixSpy/
-├── extension/
-│   ├── src/                    # TypeScript source
-│   │   ├── extension.ts        # Main entry
-│   │   ├── providers/          # Custom Editor, Tree View
-│   │   ├── ipc/                # Python Bridge
-│   │   ├── commands/           # User commands
-│   │   ├── webview/            # CSS, JS, HTML
-│   │   └── utils/              # Constants, error handler
-│   ├── python/                 # Python backend
-│   │   └── high_perf_parser.py # Unified parser
-│   ├── media/                  # Walkthrough media
-│   └── resources/              # Icons
-├── test_files/                 # Test MAT files
-└── README.md
-```
-
-## Supported Data Types
-
-| MATLAB Type | Python Type | Visualization |
-|-------------|-------------|---------------|
-| scalar | int/float | Text display |
-| complex | complex128 | Magnitude/Phase/Real/Imag |
-| vector | ndarray (1D) | Grid with index |
-| matrix | ndarray (2D) | Heatmap / Table |
-| tensor (3D+) | ndarray (3D+) | Slice viewer with zoom |
-| struct | dict | Expandable tree |
-| cell | list | List view |
-
-## Troubleshooting
-
-### Python not found
-
-- Ensure Python 3.8+ is installed and in PATH
-- Configure `matrixspy.pythonPath` in VS Code settings
-
-### Missing packages
-
-```bash
-pip install scipy numpy h5py mat73
-```
-
-Or use command: **"MatrixSpy: Install Python Dependencies"**
-
-### Large files are slow
-
-- Files >1GB use lazy loading
-- Adjust `matrixspy.maxDataSize` for threshold
-
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
-### v1.2.0 Highlights
+### v1.3.0 Highlights (2026-05-24)
+
+- **9 Colormaps**: Hot, Jet, Turbo, Coolwarm, RdBu added
+- **Keyboard shortcuts** for all common operations
+- **Status bar** showing active file and variable info
+- **Variable search & filter** in sidebar
+- **Image enhancement**: Window/Level, rotate, flip
+- **New exports**: NumPy NPY and PNG image formats
+
+### v1.2.1 Highlights (2026-05-15)
+
+- **Persistent Python Daemon**: ~25x faster slice loading
+- **Security**: CSP nonce, Python injection prevention
+- **Enhanced statistics**: percentiles, NaN/Inf, sparsity, memory
+
+### v1.2.0 Highlights (2026-05-15)
 
 - **Security**: Fixed XSS vulnerability, added CSP
-- **Bug fixes**: Memory leak, export commands, infinite retry, process leaks, NaN/Inf handling
-- **Performance**: Canvas RAF rendering, debounced slice slider, HDF5 sampling
-- **New features**: Image zoom controls, 4D+ tensor support, zoom persistence, cross-platform venv
-
-## Contributing
-
-Contributions welcome! Please read our contributing guidelines.
+- **Image zoom controls** with persistence
+- **4D+ tensor support**
 
 ## License
 
@@ -173,12 +140,7 @@ MIT License
 
 ## Contact
 
-For feature requests or bug reports: Maiwulanjiang Maiming
-
-## Credits
-
-- Python parsing: scipy.io, h5py
-- Visualization: Custom Canvas 2D with colormap LUTs
+For feature requests or bug reports: [GitHub Issues](https://github.com/MaiwulanjiangMaiming/MatrixSpy/issues)
 
 ---
 

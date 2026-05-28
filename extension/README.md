@@ -9,11 +9,11 @@
     <img src="https://img.shields.io/badge/VS%20Code-Marketplace-blue?logo=visual-studio-code" alt="VS Code Marketplace"/>
   </a>
   <a href="https://open-vsx.org/extension/maiwulanjiangmaiming/matrixspy">
-    <img src="https://img.shields.io/open-vsx/v/maiwulanjiangmaiming/matrixspy?label=Open%20VSX&style=flat&color=2C2255&logo=open-vsx" alt="Open VSX Version"/>
+    <img src="https://img.shields.io/open-vsx/v/maiwulanjiangmaiming/matrixspy?label=Open%20VSX&style=flat&color=2C2255" alt="Open VSX Version"/>
   </a>
 </p>
 
-A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.mat` files. Supports all MAT versions (v4–v7.3), interactive tensor visualization with zoom controls, and export to CSV/JSON.
+A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.mat` files. Supports all MAT versions (v4–v7.3), interactive tensor visualization with zoom controls, and export to CSV/JSON/NumPy/PNG.
 
 ## Features
 
@@ -23,12 +23,16 @@ A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.
   - 2D matrices as heatmaps or tables
   - 3D/4D+ tensors with slice viewer and zoom controls
   - Complex numbers: Magnitude / Phase / Real / Imag
+- **9 Colormaps**: Grayscale, Viridis, Inferno, Plasma, Hot, Jet, Turbo, Coolwarm, RdBu
+- **Keyboard shortcuts**: Arrow keys for slices, +/- for zoom, T/I for view mode, C for colormap
+- **Image enhancement**: Window/Level contrast, rotate, flip horizontal/vertical
+- **Variable search & filter**: Search box in sidebar with type: prefix filtering
+- **Status bar**: Shows file name, variable count, active variable shape/dtype/memory
 - **Zoom controls** for image mode: +/- buttons, 1:1 reset, adaptive sizing
 - **Zoom persistence**: zoom level kept when switching slices/axis/view mode
 - **Tree view** for variable navigation with expandable structs
 - **Lazy loading** for large 3D tensors and HDF5 datasets
-- **Export**: CSV, JSON
-- **Colormaps**: Grayscale, Viridis, Inferno, Plasma
+- **Export**: CSV, JSON, NumPy NPY, PNG Image
 - **Setup wizard** with automatic dependency detection
 
 ## Prerequisites
@@ -52,6 +56,7 @@ The extension checks dependencies on first launch and guides you through install
 ### Navigation
 
 - **Sidebar**: Browse all variables, expand structs, click to view
+- **Search box**: Filter variables by name or type (e.g., `type:struct`)
 - **Tree items**: Expand/collapse nested structures
 
 ### Visualization
@@ -71,12 +76,29 @@ When viewing tensors in Image mode:
 
 - **+ / -**: Zoom in/out (1.5x per click)
 - **1:1**: Reset to adaptive size
+- **Window/Level**: Adjust contrast range with sliders
+- **Rotate**: ↺ / ↻ buttons (90° increments)
+- **Flip**: ⇄ horizontal / ⇅ vertical
 - **Zoom persistence**: zoom level is kept when switching slices
 - **Adaptive sizing**: small tensors auto-upscaled, large tensors fit container
 
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `←` / `[` | Previous slice |
+| `→` / `]` | Next slice |
+| `+` / `=` | Zoom in |
+| `-` / `_` | Zoom out |
+| `0` | Reset zoom |
+| `T` | Toggle Image/Table view |
+| `I` | Switch to Image view |
+| `C` | Next colormap |
+| `Shift+C` | Previous colormap |
+
 ### Export
 
-- Command Palette → "MatrixSpy: Export to CSV" / "Export to JSON"
+- Command Palette → "MatrixSpy: Export to CSV" / "Export to JSON" / "Export to NumPy" / "Export to PNG"
 
 ## Configuration
 
@@ -89,75 +111,37 @@ When viewing tensors in Image mode:
 
 ## Changelog
 
-### v1.2.1 (2026-05-15)
+See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
-**Architecture**
-- Persistent Python Daemon: stdin/stdout JSON-RPC, ~25x faster slice loading
-- Heartbeat + crash recovery for daemon process
+### v1.3.0 Highlights (2026-05-24)
 
-**Security**
-- Python injection prevention via stdin JSON-RPC
-- CSP nonce hardening (replaced unsafe-inline)
-- Resource limits (100M element cap)
+- **9 Colormaps**: Hot, Jet, Turbo, Coolwarm, RdBu added
+- **Keyboard shortcuts** for all common operations
+- **Status bar** showing active file and variable info
+- **Variable search & filter** in sidebar
+- **Image enhancement**: Window/Level, rotate, flip
+- **New exports**: NumPy NPY and PNG image formats
 
-**Features**
-- Enhanced statistics: percentiles, NaN/Inf count, sparsity, memory usage
-- VS Code native theme support (no manual theme switching needed)
+### v1.2.1 Highlights (2026-05-15)
 
-**Engineering**
-- 28 pytest tests (v5/HDF5/serializer/daemon)
-- GitHub Actions CI (Python 3.10-3.12, ruff, TypeScript, VSIX)
-- Python type annotations + ruff linting
+- **Persistent Python Daemon**: ~25x faster slice loading
+- **Security**: CSP nonce, Python injection prevention
+- **Enhanced statistics**: percentiles, NaN/Inf, sparsity, memory
 
-### v1.2.0 (2026-05-15)
+### v1.2.0 Highlights (2026-05-15)
 
-**Security**
-- Fixed XSS vulnerability with HTML escaping
-- Added Content-Security-Policy to webview
-
-**Bug Fixes**
-- Fixed critical memory leak in message handling
-- Fixed export commands not working in custom editor
-- Fixed infinite retry loop — limited to 3 with backoff
-- Fixed process leak on slice timeout
-- Fixed NaN/Inf JSON serialization
-- Fixed 4D+ tensors showing raw JSON
-- Fixed empty arrays showing blank content
-
-**Performance**
-- Canvas rendering with requestAnimationFrame
-- Debounced slice slider (50ms)
-- HDF5 stats sampling for large datasets
-
-**New Features**
-- Image zoom controls (+/-/1:1)
-- Adaptive image sizing
-- Zoom persistence across slices
-- 4D+ tensor support
-- Cross-platform venv support
-
-### v1.1.2 (2026-04-24)
-
-- Fixed v7.3 (HDF5) MAT file parsing
-- Fixed NaN/Inf JSON serialization errors
-- Modernized webview architecture
-- Added colormap, histogram, sparkline visualizations
-
-### v1.1.1 (2026-04-20)
-
-- Welcome page with dependency check
-- Auto-detect Python and required packages
-
-### v1.1.0 (2026-04-07)
-
-- Multi-level Tree Navigation
-- Lazy Loading for 3D Tensors
-- v7.3 MAT File Support
-
-### v1.0.0 (2026-04-05)
-
-- Initial release
+- **Security**: Fixed XSS vulnerability, added CSP
+- **Image zoom controls** with persistence
+- **4D+ tensor support**
 
 ## License
 
 MIT License
+
+## Contact
+
+For feature requests or bug reports: [GitHub Issues](https://github.com/MaiwulanjiangMaiming/MatrixSpy/issues)
+
+---
+
+**Enjoy viewing your MAT files!**
