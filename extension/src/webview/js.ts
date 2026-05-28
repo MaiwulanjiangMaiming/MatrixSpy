@@ -1042,33 +1042,33 @@ function render2DArray(name, value) {
             '</select>' +
             '</div>';
 
-        html += '<div class="image-viewer">' +
-            '<div class="canvas-zoom-controls">' +
-            '<button class="canvas-zoom-btn" id="canvasZoomOut" title="Zoom out">-</button>' +
-            '<span class="canvas-zoom-level" id="canvasZoomLevel">100%</span>' +
-            '<button class="canvas-zoom-btn" id="canvasZoomIn" title="Zoom in">+</button>' +
-            '<button class="canvas-zoom-btn" id="canvasZoomReset" title="Reset zoom" style="font-size:12px;">1:1</button>' +
+        html += '<div class="image-toolbar">' +
+            '<div class="toolbar-group">' +
+            '<button class="toolbar-btn" id="canvasZoomOut" title="Zoom out">-</button>' +
+            '<span class="toolbar-text" id="canvasZoomLevel">100%</span>' +
+            '<button class="toolbar-btn" id="canvasZoomIn" title="Zoom in">+</button>' +
+            '<button class="toolbar-btn" id="canvasZoomReset" title="Reset zoom">1:1</button>' +
             '</div>' +
-            '<div class="image-enhance-controls">' +
-            '<div class="enhance-row">' +
-            '<div class="enhance-group">' +
+            '<div class="toolbar-divider"></div>' +
+            '<div class="toolbar-group">' +
             '<label>Window</label>' +
             '<input type="range" id="windowLevel" min="0" max="100" value="' + Math.round(state.windowLevel * 100) + '" data-action="windowLevel">' +
-            '<span class="enhance-value" id="windowLevelValue">' + Math.round(state.windowLevel * 100) + '%</span>' +
+            '<span class="toolbar-value" id="windowLevelValue">' + Math.round(state.windowLevel * 100) + '%</span>' +
             '</div>' +
-            '<div class="enhance-group">' +
+            '<div class="toolbar-group">' +
             '<label>Level</label>' +
             '<input type="range" id="windowWidth" min="1" max="100" value="' + Math.round(state.windowWidth * 100) + '" data-action="windowWidth">' +
-            '<span class="enhance-value" id="windowWidthValue">' + Math.round(state.windowWidth * 100) + '%</span>' +
+            '<span class="toolbar-value" id="windowWidthValue">' + Math.round(state.windowWidth * 100) + '%</span>' +
+            '</div>' +
+            '<div class="toolbar-divider"></div>' +
+            '<div class="toolbar-group">' +
+            '<button class="toolbar-btn" id="rotateLeft" title="Rotate left (↺)">↺</button>' +
+            '<button class="toolbar-btn" id="rotateRight" title="Rotate right (↻)">↻</button>' +
+            '<button class="toolbar-btn" id="flipH" title="Flip horizontal (⇄)">⇄</button>' +
+            '<button class="toolbar-btn" id="flipV" title="Flip vertical (⇅)">⇅</button>' +
             '</div>' +
             '</div>' +
-            '<div class="enhance-row enhance-buttons">' +
-            '<button class="enhance-btn" id="rotateLeft" title="Rotate left (↺)">↺</button>' +
-            '<button class="enhance-btn" id="rotateRight" title="Rotate right (↻)">↻</button>' +
-            '<button class="enhance-btn" id="flipH" title="Flip horizontal (⇄)">⇄</button>' +
-            '<button class="enhance-btn" id="flipV" title="Flip vertical (⇅)">⇅</button>' +
-            '</div>' +
-            '</div>' +
+            '<div class="image-viewer">' +
             '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
             '<div class="canvas-dimensions" id="canvasDimensions"></div>' +
             '</div>';
@@ -1146,33 +1146,33 @@ function renderNDArray(name, value) {
 
         html += '</div>';
 
-        html += '<div class="image-viewer">' +
-            '<div class="canvas-zoom-controls">' +
-            '<button class="canvas-zoom-btn" id="canvasZoomOut" title="Zoom out">-</button>' +
-            '<span class="canvas-zoom-level" id="canvasZoomLevel">100%</span>' +
-            '<button class="canvas-zoom-btn" id="canvasZoomIn" title="Zoom in">+</button>' +
-            '<button class="canvas-zoom-btn" id="canvasZoomReset" title="Reset zoom" style="font-size:12px;">1:1</button>' +
+        html += '<div class="image-toolbar">' +
+            '<div class="toolbar-group">' +
+            '<button class="toolbar-btn" id="canvasZoomOut" title="Zoom out">-</button>' +
+            '<span class="toolbar-text" id="canvasZoomLevel">100%</span>' +
+            '<button class="toolbar-btn" id="canvasZoomIn" title="Zoom in">+</button>' +
+            '<button class="toolbar-btn" id="canvasZoomReset" title="Reset zoom">1:1</button>' +
             '</div>' +
-            '<div class="image-enhance-controls">' +
-            '<div class="enhance-row">' +
-            '<div class="enhance-group">' +
+            '<div class="toolbar-divider"></div>' +
+            '<div class="toolbar-group">' +
             '<label>Window</label>' +
             '<input type="range" id="windowLevel" min="0" max="100" value="' + Math.round(state.windowLevel * 100) + '" data-action="windowLevel">' +
-            '<span class="enhance-value" id="windowLevelValue">' + Math.round(state.windowLevel * 100) + '%</span>' +
+            '<span class="toolbar-value" id="windowLevelValue">' + Math.round(state.windowLevel * 100) + '%</span>' +
             '</div>' +
-            '<div class="enhance-group">' +
+            '<div class="toolbar-group">' +
             '<label>Level</label>' +
             '<input type="range" id="windowWidth" min="1" max="100" value="' + Math.round(state.windowWidth * 100) + '" data-action="windowWidth">' +
-            '<span class="enhance-value" id="windowWidthValue">' + Math.round(state.windowWidth * 100) + '%</span>' +
+            '<span class="toolbar-value" id="windowWidthValue">' + Math.round(state.windowWidth * 100) + '%</span>' +
+            '</div>' +
+            '<div class="toolbar-divider"></div>' +
+            '<div class="toolbar-group">' +
+            '<button class="toolbar-btn" id="rotateLeft" title="Rotate left (↺)">↺</button>' +
+            '<button class="toolbar-btn" id="rotateRight" title="Rotate right (↻)">↻</button>' +
+            '<button class="toolbar-btn" id="flipH" title="Flip horizontal (⇄)">⇄</button>' +
+            '<button class="toolbar-btn" id="flipV" title="Flip vertical (⇅)">⇅</button>' +
             '</div>' +
             '</div>' +
-            '<div class="enhance-row enhance-buttons">' +
-            '<button class="enhance-btn" id="rotateLeft" title="Rotate left (↺)">↺</button>' +
-            '<button class="enhance-btn" id="rotateRight" title="Rotate right (↻)">↻</button>' +
-            '<button class="enhance-btn" id="flipH" title="Flip horizontal (⇄)">⇄</button>' +
-            '<button class="enhance-btn" id="flipV" title="Flip vertical (⇅)">⇅</button>' +
-            '</div>' +
-            '</div>' +
+            '<div class="image-viewer">' +
             '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
             '<div class="canvas-dimensions" id="canvasDimensions"></div>' +
             '</div>';

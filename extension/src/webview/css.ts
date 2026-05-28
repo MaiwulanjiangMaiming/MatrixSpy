@@ -256,7 +256,7 @@ body {
     background: var(--vscode-sideBar-background);
 }
 .image-viewer {
-    margin-top: 20px;
+    margin-top: 12px;
     background: var(--vscode-editor-background);
     padding: 24px;
     border-radius: 12px;
@@ -264,7 +264,6 @@ body {
     overflow: auto;
     max-height: 600px;
     position: relative;
-    padding-top: 60px;
 }
 .image-canvas {
     image-rendering: pixelated;
@@ -274,99 +273,38 @@ body {
     cursor: crosshair;
     transition: width 0.15s ease, height 0.15s ease;
 }
-.canvas-zoom-controls {
-    position: absolute;
-    top: 12px;
-    left: 12px;
+.image-toolbar {
     display: flex;
-    gap: 6px;
+    flex-wrap: wrap;
     align-items: center;
+    gap: 8px 16px;
     background: var(--vscode-editorWidget-background);
-    padding: 6px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--vscode-panel-border);
-    z-index: 10;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-}
-.image-enhance-controls {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    background: var(--vscode-editorWidget-background);
-    padding: 12px 14px;
+    padding: 10px 16px;
     border-radius: 10px;
     border: 1px solid var(--vscode-panel-border);
-    z-index: 10;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-    min-width: 160px;
+    margin-top: 12px;
 }
-.enhance-row {
+.toolbar-group {
     display: flex;
-    gap: 12px;
-    align-items: flex-start;
+    align-items: center;
+    gap: 6px;
 }
-.enhance-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex: 1;
-}
-.enhance-group label {
+.toolbar-group label {
     font-size: 11px;
     font-weight: 600;
     color: var(--vscode-descriptionForeground);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    margin-right: 4px;
 }
-.enhance-group input[type="range"] {
-    width: 100%;
-    min-width: 80px;
-    cursor: pointer;
-}
-.enhance-value {
-    font-size: 11px;
-    color: var(--vscode-descriptionForeground);
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-}
-.enhance-buttons {
-    justify-content: center;
-    gap: 6px;
-    padding-top: 4px;
-    border-top: 1px solid var(--vscode-panel-border);
-}
-.enhance-btn {
+.toolbar-btn {
     width: 32px;
     height: 32px;
     border: 1px solid var(--vscode-panel-border);
     border-radius: 6px;
     background: var(--vscode-button-secondaryBackground);
     color: var(--vscode-button-secondaryForeground);
-    font-size: 16px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s ease;
-}
-.enhance-btn:hover {
-    background: var(--vscode-button-secondaryHoverBackground);
-    border-color: var(--vscode-focusBorder);
-}
-.enhance-btn:active {
-    transform: scale(0.95);
-}
-.canvas-zoom-btn {
-    width: 32px;
-    height: 32px;
-    border: none;
-    border-radius: 6px;
-    background: var(--vscode-editor-background);
-    color: var(--vscode-editor-foreground);
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 600;
     cursor: pointer;
     display: flex;
@@ -375,6 +313,37 @@ body {
     transition: all 0.15s ease;
     line-height: 1;
     padding: 0;
+}
+.toolbar-btn:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+    border-color: var(--vscode-focusBorder);
+}
+.toolbar-btn:active {
+    transform: scale(0.95);
+}
+.toolbar-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--vscode-editor-foreground);
+    min-width: 44px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+.toolbar-value {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    min-width: 32px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+.toolbar-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--vscode-panel-border);
+}
+.image-toolbar input[type="range"] {
+    width: 80px;
+    cursor: pointer;
 }
 .canvas-zoom-btn:hover {
     background: var(--vscode-button-background);
