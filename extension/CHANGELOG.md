@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.4] - 2026-05-30
+
+### Added
+
+- Python input validation with `dataclass` for daemon requests (`LoadFileRequest`, `LoadSliceRequest`) — invalid requests now return `VALIDATION_ERROR` code
+- `MatParseError` exception class with error codes (`FILE_NOT_FOUND`, `DEPENDENCY_MISSING`, `MEMORY_LIMIT`, `INVALID_FORMAT`) for structured error handling
+
 ## [1.3.3] - 2026-05-30
 
 ### Changed

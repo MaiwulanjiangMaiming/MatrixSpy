@@ -1,10 +1,41 @@
 import sys
 import scipy.io
 import numpy as np
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Literal
+from dataclasses import dataclass
 import json
 import base64
 import h5py
+
+
+class MatParseError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
+@dataclass
+class LoadFileRequest:
+    action: Literal['load_file']
+    path: str
+    _request_id: str
+
+
+@dataclass
+class LoadSliceRequest:
+    action: Literal['load_slice']
+    path: str
+    variable: str
+    axis: int
+    index: int
+    _request_id: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.axis, int) or self.axis < 0:
+            raise ValueError("axis must be a non-negative integer")
+        if not isinstance(self.index, int) or self.index < 0:
+            raise ValueError("index must be a non-negative integer")
 
 
 class HighPerfMatParser:
@@ -16,6 +47,10 @@ class HighPerfMatParser:
 
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         try:
+            import os
+            if not os.path.isfile(file_path):
+                raise MatParseError('FILE_NOT_FOUND', f'File not found: {file_path}')
+
             version = self._detect_version(file_path)
             result = {}
 
@@ -61,6 +96,13 @@ class HighPerfMatParser:
                 'version': version,
                 'file_path': file_path,
                 'data': result
+            }
+        except MatParseError as e:
+            return {
+                'success': False,
+                'error': e.message,
+                'code': e.code,
+                'file_path': file_path
             }
         except Exception as e:
             import traceback
@@ -137,6 +179,13 @@ class HighPerfMatParser:
                     'encoded_data': encoded,
                     'statistics': self._get_stats(slice_data)
                 }
+            }
+        except MatParseError as e:
+            return {
+                'success': False,
+                'error': e.message,
+                'code': e.code,
+                'variable_name': variable_name
             }
         except Exception as e:
             return {
@@ -504,18 +553,32 @@ def daemon_main() -> None:
             _respond({'action': 'shutdown_ack'})
             break
         elif action == 'load_file':
-            file_path = request.get('path', '')
-            result = parser.parse_file(file_path)
-            _respond(result)
+            try:
+                req = LoadFileRequest(
+                    action='load_file',
+                    path=request.get('path', ''),
+                    _request_id=request_id or ''
+                )
+                result = parser.parse_file(req.path)
+                _respond(result)
+            except (ValueError, TypeError) as e:
+                _respond({'error': str(e), 'code': 'VALIDATION_ERROR'})
         elif action == 'load_slice':
-            file_path = request.get('path', '')
-            variable = request.get('variable', '')
-            axis = request.get('axis', 0)
-            index = request.get('index', 0)
-            result = parser.load_slice(file_path, variable, axis, index)
-            _respond(result)
+            try:
+                req = LoadSliceRequest(
+                    action='load_slice',
+                    path=request.get('path', ''),
+                    variable=request.get('variable', ''),
+                    axis=request.get('axis', 0),
+                    index=request.get('index', 0),
+                    _request_id=request_id or ''
+                )
+                result = parser.load_slice(req.path, req.variable, req.axis, req.index)
+                _respond(result)
+            except (ValueError, TypeError) as e:
+                _respond({'error': str(e), 'code': 'VALIDATION_ERROR'})
         else:
-            _respond({'error': f'Unknown action: {action}'})
+            _respond({'error': f'Unknown action: {action}', 'code': 'UNKNOWN_ACTION'})
 
 
 def main() -> None:
