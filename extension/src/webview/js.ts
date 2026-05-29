@@ -1385,6 +1385,9 @@ function handleMessage(event) {
 
         state.currentVariableData = matData.data;
         state.currentFilePath = matData.file_path;
+        state.windowLevel = 0.5;
+        state.windowWidth = 1.0;
+        canvasTransformState = { rotation: 0, flipH: false, flipV: false };
         fileInfo.textContent = (matData.version || 'v?') + ' \\u00B7 ' + (matData.file_path || '');
 
         state.currentActiveVariable = null;
