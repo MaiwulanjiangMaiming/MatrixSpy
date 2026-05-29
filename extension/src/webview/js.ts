@@ -1372,59 +1372,75 @@ function updateWindowLevel() {
     }
 }
 
+function handleFileLoaded(message) {
+    var matData = message.data;
+
+    if (!matData.success || !matData.data) {
+        mainContent.innerHTML = '<div class="error">Failed to load file: ' + escapeHtml(matData.error || 'No data') + '</div>';
+        return;
+    }
+
+    state.currentVariableData = matData.data;
+    state.currentFilePath = matData.file_path;
+    state.windowLevel = 0.5;
+    state.windowWidth = 1.0;
+    canvasTransformState = { rotation: 0, flipH: false, flipV: false };
+    fileInfo.textContent = (matData.version || 'v?') + ' \\u00B7 ' + (matData.file_path || '');
+
+    state.currentActiveVariable = null;
+    var searchFilter = sidebarSearch ? sidebarSearch.value : '';
+    renderSidebar(matData.data, searchFilter);
+
+    var varNames = Object.keys(matData.data).sort();
+    var html = '<div class="success">';
+    html += '<div class="success-icon">\\u2705</div>';
+    html += '<h2>File loaded successfully!</h2>';
+    html += '<p>Variables: ' + varNames.length + '</p>';
+    html += '<p style="margin-top: 24px;">';
+    html += 'Click a variable in the <span class="highlight">sidebar</span> (left)';
+    html += '</p>';
+    html += '<p style="opacity: 0.7;">to view its data here</p>';
+    html += '</div>';
+
+    mainContent.innerHTML = html;
+}
+
+function handleSliceLoaded(message) {
+    if (message.success && message.data && message.data._type === 'slice') {
+        state.currentLoadedSliceData = decodeBase64Slice(message.data);
+        scheduleCanvasRender(state.currentLoadedSliceData);
+
+        var loadingEl = document.getElementById('sliceLoadingIndicator');
+        if (loadingEl) loadingEl.style.display = 'none';
+    } else {
+        var loadingEl2 = document.getElementById('sliceLoadingIndicator');
+        if (loadingEl2) loadingEl2.textContent = 'Error loading slice: ' + escapeHtml(message.error || 'Unknown error');
+    }
+}
+
+function handleShowVariable(message) {
+    var name = message.variableName;
+
+    if (state.currentFileData && name in state.currentFileData) {
+        selectTreeItem(name);
+    }
+}
+
+function handleError(message) {
+    mainContent.innerHTML = '<div class="error">Error: ' + escapeHtml(message.error) + '</div>';
+}
+
 function handleMessage(event) {
     var message = event.data;
 
     if (message.command === 'fileLoaded') {
-        var matData = message.data;
-
-        if (!matData.success || !matData.data) {
-            mainContent.innerHTML = '<div class="error">Failed to load file: ' + escapeHtml(matData.error || 'No data') + '</div>';
-            return;
-        }
-
-        state.currentVariableData = matData.data;
-        state.currentFilePath = matData.file_path;
-        state.windowLevel = 0.5;
-        state.windowWidth = 1.0;
-        canvasTransformState = { rotation: 0, flipH: false, flipV: false };
-        fileInfo.textContent = (matData.version || 'v?') + ' \\u00B7 ' + (matData.file_path || '');
-
-        state.currentActiveVariable = null;
-        var searchFilter = sidebarSearch ? sidebarSearch.value : '';
-        renderSidebar(matData.data, searchFilter);
-
-        var varNames = Object.keys(matData.data).sort();
-        var html = '<div class="success">';
-        html += '<div class="success-icon">\\u2705</div>';
-        html += '<h2>File loaded successfully!</h2>';
-        html += '<p>Variables: ' + varNames.length + '</p>';
-        html += '<p style="margin-top: 24px;">';
-        html += 'Click a variable in the <span class="highlight">sidebar</span> (left)';
-        html += '</p>';
-        html += '<p style="opacity: 0.7;">to view its data here</p>';
-        html += '</div>';
-
-        mainContent.innerHTML = html;
+        handleFileLoaded(message);
     } else if (message.command === 'sliceLoaded') {
-        if (message.success && message.data && message.data._type === 'slice') {
-            state.currentLoadedSliceData = decodeBase64Slice(message.data);
-            scheduleCanvasRender(state.currentLoadedSliceData);
-
-            var loadingEl = document.getElementById('sliceLoadingIndicator');
-            if (loadingEl) loadingEl.style.display = 'none';
-        } else {
-            var loadingEl2 = document.getElementById('sliceLoadingIndicator');
-            if (loadingEl2) loadingEl2.textContent = 'Error loading slice: ' + escapeHtml(message.error || 'Unknown error');
-        }
+        handleSliceLoaded(message);
     } else if (message.command === 'showVariable') {
-        var name = message.variableName;
-
-        if (state.currentFileData && name in state.currentFileData) {
-            selectTreeItem(name);
-        }
+        handleShowVariable(message);
     } else if (message.command === 'error') {
-        mainContent.innerHTML = '<div class="error">Error: ' + escapeHtml(message.error) + '</div>';
+        handleError(message);
     }
 }
 

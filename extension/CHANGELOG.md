@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.3] - 2026-05-30
+
+### Changed
+
+- Refactored `handleMessage()` into separate handler functions (`handleFileLoaded`, `handleSliceLoaded`, `handleShowVariable`, `handleError`) for better readability
+- Added `types/messages.ts` with discriminated union type definitions for webview-extension communication
+
 ## [1.3.2] - 2026-05-30
 
 ### Fixed
