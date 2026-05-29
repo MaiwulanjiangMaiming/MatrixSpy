@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.5] - 2026-05-30
+
+### Changed
+
+- Typed `CustomEditorProvider.createMessageHandler` with `WebviewToExtension` discriminated union from `types/messages.ts`
+- Typed `postMessage` calls with `ExtensionToWebview` union type for compile-time message safety
+
 ## [1.3.4] - 2026-05-30
 
 ### Added

@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import { PythonBridge } from '../ipc/PythonBridge';
 import { updateTreeData, updateCurrentWebviewPanel, cacheFileData, updateStatusBar } from '../extension';
 import { getHtml } from '../webview/html';
+import type { WebviewToExtension, ExtensionToWebview } from '../types/messages';
 
 export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvider {
     private messageListenerDisposable: vscode.Disposable | null = null;
@@ -56,13 +57,11 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             ]
         };
 
-        const version = this.context.extension.packageJSON.version || '1.3.4';
+        const version = this.context.extension.packageJSON.version || '1.3.5';
         webviewPanel.webview.html = getHtml(version);
 
-        webviewPanel.webview.postMessage({
-            command: 'loadingStart',
-            message: 'Loading file...'
-        });
+        const loadingMsg: ExtensionToWebview = { command: 'loadingStart', message: 'Loading file...' };
+        webviewPanel.webview.postMessage(loadingMsg);
 
         this.removeMessageListener();
         this.messageListenerDisposable = webviewPanel.webview.onDidReceiveMessage(
@@ -78,7 +77,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
     }
 
     private createMessageHandler(filePath: string, webviewPanel: vscode.WebviewPanel) {
-        return async (message: { command?: string; variableName?: string; axis?: number; index?: number; url?: string; varInfo?: { shape?: number[]; dtype?: string; memory_mb?: number } }) => {
+        return async (message: WebviewToExtension) => {
             if (message.command === 'loadSlice') {
                 try {
                     const sliceResult = await this.pythonBridge.loadSlice(
