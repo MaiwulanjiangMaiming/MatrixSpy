@@ -8,6 +8,14 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.2] - 2026-05-30
+
+### Fixed
+
+- Fixed `require('zlib')` runtime imports in exportData.ts — moved to top-level `import * as zlib from 'zlib'`
+- Added `enablement` condition to `refreshVariables` command — only enabled when a MAT file is active
+- Replaced `var` with `const`/`let` in `buildLUT()` function for code consistency
+
 ## [1.3.1] - 2026-05-30
 
 ### Fixed

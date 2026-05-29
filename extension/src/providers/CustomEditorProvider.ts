@@ -56,7 +56,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             ]
         };
 
-        const version = this.context.extension.packageJSON.version || '1.3.1';
+        const version = this.context.extension.packageJSON.version || '1.3.2';
         webviewPanel.webview.html = getHtml(version);
 
         webviewPanel.webview.postMessage({
@@ -127,6 +127,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
                 const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
                 const varCount = Object.keys(result.data).length;
                 updateStatusBar(fileName, varCount, null, null);
+                vscode.commands.executeCommand('setContext', 'matrixspy:hasActiveFile', true);
             }
 
             webviewPanel.webview.postMessage({

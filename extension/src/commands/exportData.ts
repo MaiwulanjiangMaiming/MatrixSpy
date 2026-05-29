@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as zlib from 'zlib';
 import { getFileDataCache } from '../extension';
 import { MatFileData, MatVariable } from '../types';
 
@@ -369,7 +370,6 @@ function encodeGrayscalePNG(width: number, height: number, pixelData: Buffer): B
         }
     }
 
-    const zlib = require('zlib');
     const compressed = zlib.deflateSync(idatData, { level: 9 });
 
     const chunks: Buffer[] = [];
@@ -399,7 +399,7 @@ function createChunk(type: string, data: Buffer): Buffer {
     const length = Buffer.alloc(4);
     length.writeUInt32BE(data.length, 0);
 
-    const crc = require('zlib').crc32(Buffer.concat([typeBuffer, data]));
+    const crc = (zlib as any).crc32(Buffer.concat([typeBuffer, data]));
     const crcBuffer = Buffer.alloc(4);
     crcBuffer.writeUInt32BE(crc, 0);
 

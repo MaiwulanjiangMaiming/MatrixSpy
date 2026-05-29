@@ -43,19 +43,19 @@ const state = {
 };
 
 function buildLUT(keyPoints) {
-    var lut = new Array(256);
-    for (var i = 0; i < 256; i++) {
-        var t = i / 255;
-        var lower = keyPoints[0], upper = keyPoints[keyPoints.length - 1];
-        for (var j = 0; j < keyPoints.length - 1; j++) {
+    const lut = new Array(256);
+    for (let i = 0; i < 256; i++) {
+        const t = i / 255;
+        let lower = keyPoints[0], upper = keyPoints[keyPoints.length - 1];
+        for (let j = 0; j < keyPoints.length - 1; j++) {
             if (t >= keyPoints[j][0] && t <= keyPoints[j + 1][0]) {
                 lower = keyPoints[j];
                 upper = keyPoints[j + 1];
                 break;
             }
         }
-        var range = upper[0] - lower[0] || 1;
-        var f = (t - lower[0]) / range;
+        const range = upper[0] - lower[0] || 1;
+        const f = (t - lower[0]) / range;
         lut[i] = [
             Math.round(lower[1] + (upper[1] - lower[1]) * f),
             Math.round(lower[2] + (upper[2] - lower[2]) * f),
