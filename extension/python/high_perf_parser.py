@@ -207,6 +207,57 @@ class HighPerfMatParser:
                 'variable_name': variable_name
             }
 
+    def export_hdf5(self, src_path: str, variable_name: str, dest_path: str) -> Dict[str, Any]:
+        try:
+            version = self._detect_version(src_path)
+            value = None
+
+            if version == 'v7.3':
+                try:
+                    import mat73
+                    data = mat73.loadmat(src_path, only_include=variable_name, use_attrdict=True)
+                    value = data.get(variable_name)
+                except ImportError:
+                    with h5py.File(src_path, 'r') as f:
+                        if variable_name not in f:
+                            raise ValueError(f"Variable '{variable_name}' not found")
+                        ds = f[variable_name]
+                        if isinstance(ds, h5py.Dataset):
+                            value = ds[()]
+                        else:
+                            raise ValueError(f"Variable '{variable_name}' is not a dataset")
+            else:
+                data = scipy.io.loadmat(src_path, variable_names=[variable_name],
+                                       simplify_cells=True, struct_as_record=False,
+                                       squeeze_me=True)
+                value = data.get(variable_name)
+
+            if value is None:
+                raise ValueError(f"Variable '{variable_name}' not found")
+
+            if not isinstance(value, np.ndarray):
+                value = np.array(value)
+
+            with h5py.File(dest_path, 'w') as f:
+                f.create_dataset(variable_name, data=value, compression='gzip', compression_opts=4)
+
+            return {
+                'success': True,
+                'variable_name': variable_name,
+                'dest_path': dest_path
+            }
+        except MatParseError as e:
+            return {
+                'success': False,
+                'error': e.message,
+                'code': e.code
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def _fill_none_from_hdf5(self, result: Dict[str, Any], h5file: h5py.File) -> None:
         for key in list(result.keys()):
             val = result[key]
@@ -636,6 +687,18 @@ def daemon_main() -> None:
                 _respond(result)
             except (ValueError, TypeError) as e:
                 _respond({'error': str(e), 'code': 'VALIDATION_ERROR'})
+        elif action == 'export_hdf5':
+            try:
+                src_path = request.get('path', '')
+                variable = request.get('variable', '')
+                dest_path = request.get('dest_path', '')
+                if not src_path or not variable or not dest_path:
+                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'})
+                    continue
+                result = parser.export_hdf5(src_path, variable, dest_path)
+                _respond(result)
+            except Exception as e:
+                _respond({'error': str(e), 'code': 'EXPORT_ERROR'})
         else:
             _respond({'error': f'Unknown action: {action}', 'code': 'UNKNOWN_ACTION'})
 

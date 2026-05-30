@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as zlib from 'zlib';
-import { getFileDataCache } from '../extension';
+import { getFileDataCache, getPythonBridge } from '../extension';
 import { MatFileData, MatVariable } from '../types';
 
 function getActiveMatFilePath(): string | null {
@@ -404,4 +404,68 @@ function createChunk(type: string, data: Buffer): Buffer {
     crcBuffer.writeUInt32BE(crc, 0);
 
     return Buffer.concat([length, typeBuffer, data, crcBuffer]);
+}
+
+export async function exportHDF5Command() {
+    const activeFile = getActiveMatFilePath();
+    if (!activeFile) {
+        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
+        return;
+    }
+
+    const bridge = getPythonBridge();
+    if (!bridge) {
+        vscode.window.showErrorMessage('Python bridge not available. Please reload the window.');
+        return;
+    }
+
+    const activeFileData = getActiveFileData();
+    if (!activeFileData) {
+        vscode.window.showErrorMessage('No file data available.');
+        return;
+    }
+
+    const { data } = activeFileData;
+
+    try {
+        const variables = Object.keys(data);
+        if (variables.length === 0) {
+            vscode.window.showWarningMessage('No variables found in the MAT file.');
+            return;
+        }
+
+        const selectedVar = await vscode.window.showQuickPick(variables, {
+            placeHolder: 'Select variable to export as HDF5'
+        });
+
+        if (!selectedVar) {
+            return;
+        }
+
+        const saveUri = await vscode.window.showSaveDialog({
+            filters: {
+                'HDF5 Files': ['h5', 'hdf5']
+            },
+            defaultUri: vscode.Uri.file(`${selectedVar}.h5`)
+        });
+
+        if (!saveUri) {
+            return;
+        }
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'MatrixSpy: Exporting HDF5...',
+            cancellable: false
+        }, async () => {
+            const result = await bridge!.exportHdf5(activeFile, selectedVar, saveUri.fsPath);
+            if (result.success) {
+                vscode.window.showInformationMessage(`Exported ${selectedVar} to ${saveUri.fsPath}`);
+            } else {
+                vscode.window.showErrorMessage(`Export failed: ${result.error || 'Unknown error'}`);
+            }
+        });
+    } catch (error) {
+        vscode.window.showErrorMessage(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }

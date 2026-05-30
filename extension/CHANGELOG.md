@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.14] - 2026-05-30
+
+### Added
+
+- Slice drag real-time refresh — removed debounce for arrays with data (instant rendering), added LRU slice cache (10 entries) and prefetch mechanism (±2 adjacent slices) for large files without data
+- HDF5 export command — export any variable to HDF5 format with gzip compression via `matrixspy.exportHDF5` command
+
 ## [1.3.13] - 2026-05-30
 
 ### Added

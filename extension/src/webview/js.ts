@@ -42,6 +42,57 @@ const state = {
     windowWidth: 1.0
 };
 
+var sliceCache = {};
+var SLICE_CACHE_MAX = 10;
+var prefetchQueue = [];
+var isPrefetching = false;
+
+function sliceCacheKey(axis, index) {
+    return state.currentActiveVariable + ':' + axis + ':' + index;
+}
+
+function sliceCachePut(axis, index, data) {
+    var key = sliceCacheKey(axis, index);
+    sliceCache[key] = data;
+    var keys = Object.keys(sliceCache);
+    if (keys.length > SLICE_CACHE_MAX) {
+        delete sliceCache[keys[0]];
+    }
+}
+
+function sliceCacheGet(axis, index) {
+    var key = sliceCacheKey(axis, index);
+    return sliceCache[key] || null;
+}
+
+function sliceCacheClear() {
+    sliceCache = {};
+    prefetchQueue = [];
+}
+
+function prefetchSlices(axis, currentIndex, maxSlice) {
+    var indices = [currentIndex + 1, currentIndex + 2, currentIndex - 1];
+    for (var i = 0; i < indices.length; i++) {
+        var idx = indices[i];
+        if (idx >= 0 && idx < maxSlice && !sliceCacheGet(axis, idx) && prefetchQueue.indexOf(idx) === -1) {
+            prefetchQueue.push(idx);
+        }
+    }
+    processPrefetchQueue(axis);
+}
+
+function processPrefetchQueue(axis) {
+    if (isPrefetching || prefetchQueue.length === 0) return;
+    isPrefetching = true;
+    var idx = prefetchQueue.shift();
+    vscode.postMessage({
+        command: 'loadSlice',
+        variableName: state.currentActiveVariable,
+        axis: axis,
+        index: idx
+    });
+}
+
 function buildLUT(keyPoints) {
     const lut = new Array(256);
     for (let i = 0; i < 256; i++) {
@@ -1436,8 +1487,6 @@ function renderPreview(name, value) {
     }
 }
 
-var sliceDebounceTimer = null;
-
 function setAxis(axis) {
     state.currentAxis = parseInt(axis);
     state.currentSlice = 0;
@@ -1445,10 +1494,19 @@ function setAxis(axis) {
     state.dirty = true;
     localStorage.setItem('matViewerAxis', axis);
     localStorage.setItem('matViewerSlice', '0');
+    sliceCacheClear();
 
     if (state.fullVariableData && state.currentVariableData) {
         if (!state.fullVariableData.data && state.fullVariableData.shape.length >= 3) {
-            requestSliceFromBackend(state.currentAxis, state.currentSlice);
+            var cached = sliceCacheGet(state.currentAxis, 0);
+            if (cached) {
+                state.currentLoadedSliceData = cached;
+                scheduleCanvasRender(cached);
+            } else {
+                requestSliceFromBackend(state.currentAxis, state.currentSlice);
+            }
+            var maxSlice = state.fullVariableData.shape[state.currentAxis] || 0;
+            prefetchSlices(state.currentAxis, 0, maxSlice);
         }
         mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
 
@@ -1461,28 +1519,32 @@ function setAxis(axis) {
 
 function updateSlice(value) {
     state.currentSlice = parseInt(value);
-    state.currentLoadedSliceData = null;
     state.dirty = true;
     localStorage.setItem('matViewerSlice', value);
     var sliceValueEl = document.getElementById('sliceValue');
     if (sliceValueEl) sliceValueEl.textContent = value;
 
-    if (sliceDebounceTimer) clearTimeout(sliceDebounceTimer);
-    sliceDebounceTimer = setTimeout(function() {
-        if (state.fullVariableData && state.currentVariableData) {
-            if (!state.fullVariableData.data && state.fullVariableData.shape.length >= 3) {
-                requestSliceFromBackend(state.currentAxis, state.currentSlice);
-                return;
-            }
-
-            if (state.currentDisplayMode === 'image') {
-                var sliceData = getNDSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
-                scheduleCanvasRender(sliceData);
+    if (state.fullVariableData && state.currentVariableData) {
+        if (!state.fullVariableData.data && state.fullVariableData.shape.length >= 3) {
+            var cached = sliceCacheGet(state.currentAxis, state.currentSlice);
+            if (cached) {
+                state.currentLoadedSliceData = cached;
+                scheduleCanvasRender(cached);
             } else {
-                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+                requestSliceFromBackend(state.currentAxis, state.currentSlice);
             }
+            var maxSlice = state.fullVariableData.shape[state.currentAxis] || 0;
+            prefetchSlices(state.currentAxis, state.currentSlice, maxSlice);
+            return;
         }
-    }, 50);
+
+        if (state.currentDisplayMode === 'image') {
+            var sliceData = getNDSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
+            scheduleCanvasRender(sliceData);
+        } else {
+            mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+        }
+    }
 }
 
 function setColormap(colormap) {
@@ -1521,6 +1583,7 @@ function handleFileLoaded(message) {
         return;
     }
 
+    sliceCacheClear();
     state.currentVariableData = matData.data;
     state.currentFilePath = matData.file_path;
     state.windowLevel = 0.5;
@@ -1548,12 +1611,25 @@ function handleFileLoaded(message) {
 
 function handleSliceLoaded(message) {
     if (message.success && message.data && message.data._type === 'slice') {
-        state.currentLoadedSliceData = decodeBase64Slice(message.data);
-        scheduleCanvasRender(state.currentLoadedSliceData);
+        var decoded = decodeBase64Slice(message.data);
+        var sliceAxis = message.data.axis !== undefined ? message.data.axis : state.currentAxis;
+        var sliceIndex = message.data.index !== undefined ? message.data.index : state.currentSlice;
+        sliceCachePut(sliceAxis, sliceIndex, decoded);
+
+        if (sliceIndex === state.currentSlice && sliceAxis === state.currentAxis) {
+            state.currentLoadedSliceData = decoded;
+            scheduleCanvasRender(decoded);
+        }
 
         var loadingEl = document.getElementById('sliceLoadingIndicator');
         if (loadingEl) loadingEl.style.display = 'none';
+
+        isPrefetching = false;
+        if (prefetchQueue.length > 0) {
+            processPrefetchQueue(state.currentAxis);
+        }
     } else {
+        isPrefetching = false;
         var loadingEl2 = document.getElementById('sliceLoadingIndicator');
         if (loadingEl2) loadingEl2.textContent = 'Error loading slice: ' + escapeHtml(message.error || 'Unknown error');
     }

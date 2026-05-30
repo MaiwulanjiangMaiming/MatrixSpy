@@ -430,6 +430,46 @@ print(','.join(missing))`
         }
     }
 
+    async exportHdf5(filePath: string, variableName: string, destPath: string): Promise<any> {
+        if (this.disposed) {
+            throw createError('PythonBridge has been disposed', ERROR_CODES.UNKNOWN, null, false);
+        }
+
+        if (!fs.existsSync(filePath)) {
+            throw createError(`File not found: ${filePath}`, ERROR_CODES.FILE_NOT_FOUND, null, false);
+        }
+
+        try {
+            const result = await this.sendRequest({
+                action: 'export_hdf5',
+                path: filePath,
+                variable: variableName,
+                dest_path: destPath
+            });
+
+            if (!result.success) {
+                throw createError(
+                    result.error || 'Failed to export HDF5',
+                    ERROR_CODES.UNKNOWN,
+                    result,
+                    false
+                );
+            }
+
+            return result;
+        } catch (err) {
+            if (err && typeof err === 'object' && 'code' in err) {
+                throw err;
+            }
+            throw createError(
+                `Failed to export HDF5: ${err instanceof Error ? err.message : String(err)}`,
+                ERROR_CODES.UNKNOWN,
+                null,
+                true
+            );
+        }
+    }
+
     async dispose(): Promise<void> {
         this.disposed = true;
         this.stopHeartbeat();

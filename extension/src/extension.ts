@@ -3,7 +3,7 @@ import { MatFileEditorProvider } from './providers/CustomEditorProvider';
 import { MatVariableTreeDataProvider, setCurrentData, setCurrentWebviewPanel, showVariable } from './providers/MatVariableTreeDataProvider';
 import { PythonBridge, DependencyCheckResult } from './ipc/PythonBridge';
 import { openFileCommand } from './commands/openFile';
-import { exportCSVCommand, exportJSONCommand, exportNPYCommand, exportPNGCommand } from './commands/exportData';
+import { exportCSVCommand, exportJSONCommand, exportNPYCommand, exportPNGCommand, exportHDF5Command } from './commands/exportData';
 import { installDepsCommand, testEnvironmentCommand } from './commands/walkthroughCommands';
 import { MatFileData } from './types';
 
@@ -263,6 +263,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('matrixspy.exportJSON', () => exportJSONCommand()),
         vscode.commands.registerCommand('matrixspy.exportNPY', () => exportNPYCommand()),
         vscode.commands.registerCommand('matrixspy.exportPNG', () => exportPNGCommand()),
+        vscode.commands.registerCommand('matrixspy.exportHDF5', () => exportHDF5Command()),
         vscode.commands.registerCommand('matrixspy.refreshVariables', async () => {
             const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
             if (tab?.input instanceof vscode.TabInputCustom && tab.input.viewType === 'matrixspy.matFile') {
@@ -376,6 +377,10 @@ export function cacheFileData(filePath: string, data?: MatFileData): MatFileData
 
 export function getFileDataCache(): Map<string, MatFileData> {
     return fileDataCache;
+}
+
+export function getPythonBridge(): PythonBridge | null {
+    return currentPythonBridge;
 }
 
 export function updateTreeData(data: MatFileData): void {
