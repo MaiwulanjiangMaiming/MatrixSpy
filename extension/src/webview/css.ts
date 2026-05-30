@@ -143,6 +143,21 @@ body {
     border: 1px solid var(--vscode-errorForeground);
     margin: 20px;
 }
+.error-hint {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--vscode-textBlockQuote-background);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--vscode-descriptionForeground);
+}
+.error-hint code {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+}
 .variable-preview {
     margin-top: 24px;
     padding: 24px;

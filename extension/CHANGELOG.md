@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.12] - 2026-05-30
+
+### Added
+
+- ARIA accessibility attributes for sidebar tree (`role="tree"`, `role="treeitem"`, `aria-expanded`), canvas (`role="img"`), range inputs (`aria-label`), and toolbar buttons
+- Actionable error hints in webview — when Python is missing, packages are not installed, or file is too large, the error message now includes specific fix instructions
+
 ## [1.3.11] - 2026-05-30
 
 ### Fixed

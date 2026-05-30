@@ -23,7 +23,7 @@ export function getHtml(version: string): string {
             <div class="sidebar-search">
                 <input type="text" id="sidebarSearch" placeholder="🔍 Search variables..." />
             </div>
-            <div class="sidebar-content" id="sidebarContent">
+            <div class="sidebar-content" id="sidebarContent" role="tree" aria-label="Variables">
                 <div style="padding: 20px; color: var(--vscode-descriptionForeground); font-size: 13px;">
                     Loading variables...
                 </div>

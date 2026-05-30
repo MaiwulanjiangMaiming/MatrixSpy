@@ -260,7 +260,7 @@ function renderTreeItem(name, value, path, depth, highlightText) {
         }
     }
 
-    var html = '<div class="sidebar-tree-item' + (isActive ? ' active' : '') + '" data-path="' + escapeHtml(path) + '" data-depth="' + depth + '">';
+    var html = '<div class="sidebar-tree-item' + (isActive ? ' active' : '') + '" data-path="' + escapeHtml(path) + '" data-depth="' + depth + '" role="treeitem" aria-expanded="' + (hasChildren ? (isExpanded ? 'true' : 'false') : 'undefined') + '">';
 
     if (hasChildren) {
         html += '<span class="sidebar-tree-toggle' + (isExpanded ? ' expanded' : '') + '">' + (isExpanded ? '\\u25BC' : '\\u25B6') + '</span>';
@@ -279,7 +279,7 @@ function renderTreeItem(name, value, path, depth, highlightText) {
     html += '</div>';
 
     if (hasChildren && isExpanded) {
-        html += '<div class="sidebar-tree-children expanded">';
+        html += '<div class="sidebar-tree-children expanded" role="group">';
         childKeys.forEach(function(childKey) {
             var childPath = path + '.' + childKey;
             html += renderTreeItem(childKey, value[childKey], childPath, depth + 1, highlightText);
@@ -1066,32 +1066,32 @@ function render2DArray(name, value) {
 
         html += '<div class="image-toolbar">' +
             '<div class="toolbar-group">' +
-            '<button class="toolbar-btn" id="canvasZoomOut" title="Zoom out">-</button>' +
+            '<button class="toolbar-btn" id="canvasZoomOut" title="Zoom out" aria-label="Zoom out">-</button>' +
             '<span class="toolbar-text" id="canvasZoomLevel">100%</span>' +
-            '<button class="toolbar-btn" id="canvasZoomIn" title="Zoom in">+</button>' +
-            '<button class="toolbar-btn" id="canvasZoomReset" title="Reset zoom">1:1</button>' +
+            '<button class="toolbar-btn" id="canvasZoomIn" title="Zoom in" aria-label="Zoom in">+</button>' +
+            '<button class="toolbar-btn" id="canvasZoomReset" title="Reset zoom" aria-label="Reset zoom">1:1</button>' +
             '</div>' +
             '<div class="toolbar-divider"></div>' +
             '<div class="toolbar-group">' +
             '<label>Window</label>' +
-            '<input type="range" id="windowLevel" min="0" max="100" value="' + Math.round(state.windowLevel * 100) + '" data-action="windowLevel">' +
+            '<input type="range" id="windowLevel" min="0" max="100" value="' + Math.round(state.windowLevel * 100) + '" data-action="windowLevel" aria-label="Window center">' +
             '<span class="toolbar-value" id="windowLevelValue">' + Math.round(state.windowLevel * 100) + '%</span>' +
             '</div>' +
             '<div class="toolbar-group">' +
             '<label>Level</label>' +
-            '<input type="range" id="windowWidth" min="1" max="100" value="' + Math.round(state.windowWidth * 100) + '" data-action="windowWidth">' +
+            '<input type="range" id="windowWidth" min="1" max="100" value="' + Math.round(state.windowWidth * 100) + '" data-action="windowWidth" aria-label="Window width">' +
             '<span class="toolbar-value" id="windowWidthValue">' + Math.round(state.windowWidth * 100) + '%</span>' +
             '</div>' +
             '<div class="toolbar-divider"></div>' +
             '<div class="toolbar-group">' +
-            '<button class="toolbar-btn" id="rotateLeft" title="Rotate left (↺)">↺</button>' +
-            '<button class="toolbar-btn" id="rotateRight" title="Rotate right (↻)">↻</button>' +
-            '<button class="toolbar-btn" id="flipH" title="Flip horizontal (⇄)">⇄</button>' +
-            '<button class="toolbar-btn" id="flipV" title="Flip vertical (⇅)">⇅</button>' +
+            '<button class="toolbar-btn" id="rotateLeft" title="Rotate left" aria-label="Rotate left">↺</button>' +
+            '<button class="toolbar-btn" id="rotateRight" title="Rotate right" aria-label="Rotate right">↻</button>' +
+            '<button class="toolbar-btn" id="flipH" title="Flip horizontal" aria-label="Flip horizontal">⇄</button>' +
+            '<button class="toolbar-btn" id="flipV" title="Flip vertical" aria-label="Flip vertical">⇅</button>' +
             '</div>' +
             '</div>' +
             '<div class="image-viewer">' +
-            '<canvas id="imageCanvas" class="image-canvas"></canvas>' +
+            '<canvas id="imageCanvas" class="image-canvas" role="img" aria-label="Matrix visualization"></canvas>' +
             '<div class="canvas-dimensions" id="canvasDimensions"></div>' +
             '</div>';
 
@@ -1161,7 +1161,7 @@ function renderNDArray(name, value) {
         if (ndim >= 3) {
             var numSlices = value.shape[state.currentAxis] || 0;
             html += '<label>Slice:</label>' +
-                '<input type="range" id="sliceSlider" min="0" max="' + (numSlices - 1) + '" value="' + state.currentSlice + '" data-action="updateSlice">' +
+                '<input type="range" id="sliceSlider" min="0" max="' + (numSlices - 1) + '" value="' + state.currentSlice + '" data-action="updateSlice" aria-label="Slice index">' +
                 '<span class="tensor-value" id="sliceValue">' + state.currentSlice + '</span>' +
                 '<span id="sliceLoadingIndicator" style="display:none; margin-left:12px; color: var(--vscode-textLink-foreground); font-size:12px;"></span>';
         }
@@ -1466,7 +1466,17 @@ function handleLoadingProgress(message) {
 }
 
 function handleError(message) {
-    mainContent.innerHTML = '<div class="error">Error: ' + escapeHtml(message.error) + '</div>';
+    var errorText = message.error || 'Unknown error';
+    var hint = '';
+    var lowerError = errorText.toLowerCase();
+    if (lowerError.indexOf('python') !== -1 || lowerError.indexOf('spawn') !== -1 || lowerError.indexOf('enoent') !== -1) {
+        hint = '<div class="error-hint"><strong>Hint:</strong> Python 3.8+ is required. Configure the path in VS Code settings: <code>matrixspy.pythonPath</code></div>';
+    } else if (lowerError.indexOf('import') !== -1 || lowerError.indexOf('module') !== -1 || lowerError.indexOf('no module') !== -1) {
+        hint = '<div class="error-hint"><strong>Hint:</strong> Missing Python package. Run: <code>pip install scipy numpy h5py mat73</code></div>';
+    } else if (lowerError.indexOf('memory') !== -1 || lowerError.indexOf('too large') !== -1) {
+        hint = '<div class="error-hint"><strong>Hint:</strong> The file is too large to load. Try using a smaller file or increase <code>matrixspy.maxArrayElements</code> in settings.</div>';
+    }
+    mainContent.innerHTML = '<div class="error"><div class="error-message">Error: ' + escapeHtml(errorText) + '</div>' + hint + '</div>';
 }
 
 function handleMessage(event) {
