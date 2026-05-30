@@ -9,6 +9,17 @@ body {
     overflow: hidden;
     transition: background 0.3s ease, color 0.3s ease;
 }
+.main-content {
+    user-select: text;
+    -webkit-user-select: text;
+}
+.main-content pre,
+.main-content code,
+.main-content .value-text,
+.main-content .stat-value {
+    user-select: text;
+    -webkit-user-select: text;
+}
 .app {
     display: flex;
     flex-direction: row;

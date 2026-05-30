@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.10] - 2026-05-30
+
+### Fixed
+
+- Fixed v7.3 HDF5 files with non-standard MATLAB types (float32, int64, etc.) showing "None" — now falls back to h5py direct read when mat73 returns None
+- Fixed webview content not being selectable/copyable — added `user-select: text` to main content area
+
 ## [1.3.9] - 2026-05-30
 
 ### Added

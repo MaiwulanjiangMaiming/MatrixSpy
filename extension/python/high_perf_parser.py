@@ -66,14 +66,31 @@ class HighPerfMatParser:
                 try:
                     import mat73
                     data = mat73.loadmat(file_path, use_attrdict=True)
+                    none_keys = []
                     for key in data:
                         if key.startswith('#') or key.startswith('__'):
+                            continue
+                        if data[key] is None:
+                            none_keys.append(key)
                             continue
                         try:
                             result[key] = self._process_value(data[key], is_root=True)
                         except Exception as e:
                             print(f"Error processing variable '{key}': {e}", file=sys.stderr)
                             result[key] = {'_type': 'error', 'error': str(e)}
+                    if none_keys:
+                        with h5py.File(file_path, 'r') as f:
+                            for key in none_keys:
+                                if key in f:
+                                    try:
+                                        item = f[key]
+                                        if isinstance(item, h5py.Dataset):
+                                            result[key] = self._process_hdf5_dataset(item)
+                                        elif isinstance(item, h5py.Group):
+                                            result[key] = self._process_hdf5_group(item)
+                                    except Exception as e:
+                                        print(f"Error processing variable '{key}' via h5py fallback: {e}", file=sys.stderr)
+                                        result[key] = {'_type': 'error', 'error': str(e)}
                 except ImportError:
                     with h5py.File(file_path, 'r') as f:
                         for key in f.keys():
