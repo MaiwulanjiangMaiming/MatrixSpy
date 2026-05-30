@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.13] - 2026-05-30
+
+### Added
+
+- Colorbar display next to image canvas — shows colormap gradient with min/max/mid value labels
+- Mini histogram in statistics panel — estimated distribution from percentile data with percentile markers
+
 ## [1.3.12] - 2026-05-30
 
 ### Added

@@ -363,6 +363,10 @@ function selectTreeItem(path) {
 
     mainContent.innerHTML = renderPreview(parts[parts.length - 1], value);
 
+    if (value && value._type === 'ndarray' && (value.statistics || value.stats) && (value.statistics || value.stats).percentiles) {
+        setTimeout(function() { renderMiniHistogram(value.statistics || value.stats); }, 50);
+    }
+
     document.querySelectorAll('.sidebar-tree-item').forEach(function(item) {
         item.classList.remove('active');
         if (item.getAttribute('data-path') === path) {
@@ -458,6 +462,12 @@ function renderStats(stats) {
         for (var ei = 0; ei < extraItems.length; ei++) {
             html += '<span>' + escapeHtml(extraItems[ei]) + '</span>';
         }
+        html += '</div>';
+    }
+
+    if (stats.percentiles) {
+        html += '<div class="mini-histogram-container">';
+        html += '<canvas id="miniHistogram" class="mini-histogram" width="200" height="40"></canvas>';
         html += '</div>';
     }
 
@@ -708,6 +718,8 @@ function renderImageToCanvas(data) {
 
             if (currentRow < height) {
                 requestAnimationFrame(renderChunk);
+            } else {
+                renderColorbar(colormap, min, max);
             }
         }
 
@@ -728,7 +740,112 @@ function renderImageToCanvas(data) {
         }
         requestAnimationFrame(function() {
             ctx.putImageData(imageData, 0, 0);
+            renderColorbar(colormap, min, max);
         });
+    }
+}
+
+function renderColorbar(colormap, min, max) {
+    var cbar = document.getElementById('colorbarCanvas');
+    if (!cbar) return;
+    var canvas = document.getElementById('imageCanvas');
+    if (!canvas) return;
+
+    var displayHeight = parseInt(canvas.style.height) || canvas.height;
+    cbar.height = displayHeight;
+    cbar.style.height = displayHeight + 'px';
+
+    var ctx = cbar.getContext('2d');
+    var w = cbar.width;
+    var h = cbar.height;
+
+    for (var y = 0; y < h; y++) {
+        var norm = 1 - y / h;
+        var rgb = colormap(norm);
+        ctx.fillStyle = 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
+        ctx.fillRect(0, y, w, 1);
+    }
+
+    var cbarLabels = document.getElementById('colorbarLabels');
+    if (cbarLabels) {
+        var range = max - min;
+        cbarLabels.innerHTML =
+            '<span class="cbar-max">' + formatValue(max) + '</span>' +
+            '<span class="cbar-mid">' + formatValue(min + range * 0.5) + '</span>' +
+            '<span class="cbar-min">' + formatValue(min) + '</span>';
+    }
+}
+
+function formatValue(v) {
+    if (Math.abs(v) >= 1e6 || (Math.abs(v) < 0.001 && v !== 0)) {
+        return v.toExponential(2);
+    }
+    return v.toFixed(4);
+}
+
+function renderMiniHistogram(stats) {
+    var canvas = document.getElementById('miniHistogram');
+    if (!canvas || !stats.percentiles) return;
+
+    var ctx = canvas.getContext('2d');
+    var w = canvas.width;
+    var h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    var p = stats.percentiles;
+    var pKeys = [p.p5, p.p25, p.p50, p.p75, p.p95];
+    var min = stats.min;
+    var max = stats.max;
+    var range = max - min || 1;
+
+    var bins = new Array(32).fill(0);
+    var binEdges = [];
+    for (var bi = 0; bi <= 32; bi++) {
+        binEdges.push(min + range * bi / 32);
+    }
+
+    var pCounts = [0.05, 0.20, 0.25, 0.25, 0.20, 0.05];
+    var pBounds = [min, p.p5, p.p25, p.p50, p.p75, p.p95, max];
+
+    for (var seg = 0; seg < 6; seg++) {
+        var segMin = pBounds[seg];
+        var segMax = pBounds[seg + 1];
+        var segRange = segMax - segMin || range * 0.01;
+        var count = pCounts[seg];
+
+        for (var bj = 0; bj < 32; bj++) {
+            var bCenter = (binEdges[bj] + binEdges[bj + 1]) / 2;
+            if (bCenter >= segMin && bCenter < segMax) {
+                bins[bj] += count / (segRange / range * 32);
+            }
+        }
+    }
+
+    var maxBin = 0;
+    for (var bk = 0; bk < 32; bk++) {
+        if (bins[bk] > maxBin) maxBin = bins[bk];
+    }
+    if (maxBin === 0) return;
+
+    var barW = w / 32;
+    ctx.fillStyle = 'var(--vscode-textLink-foreground)';
+    for (var bb = 0; bb < 32; bb++) {
+        var barH = (bins[bb] / maxBin) * h * 0.9;
+        ctx.globalAlpha = 0.6;
+        ctx.fillRect(bb * barW, h - barH, barW - 1, barH);
+    }
+    ctx.globalAlpha = 1;
+
+    var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
+    for (var pi = 0; pi < pKeys.length; pi++) {
+        var px = ((pKeys[pi] - min) / range) * w;
+        var rgb = colormap((pKeys[pi] - min) / range);
+        ctx.strokeStyle = 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, h);
+        ctx.stroke();
     }
 }
 
@@ -1092,6 +1209,8 @@ function render2DArray(name, value) {
             '</div>' +
             '<div class="image-viewer">' +
             '<canvas id="imageCanvas" class="image-canvas" role="img" aria-label="Matrix visualization"></canvas>' +
+            '<canvas id="colorbarCanvas" class="colorbar-canvas" width="30"></canvas>' +
+            '<div class="colorbar-labels" id="colorbarLabels"></div>' +
             '<div class="canvas-dimensions" id="canvasDimensions"></div>' +
             '</div>';
 

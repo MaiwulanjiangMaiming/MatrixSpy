@@ -229,6 +229,15 @@ body {
     gap: 12px;
     margin-top: 20px;
 }
+.mini-histogram-container {
+    margin-top: 12px;
+    text-align: center;
+}
+.mini-histogram {
+    border-radius: 6px;
+    background: var(--vscode-list-hoverBackground);
+    max-width: 100%;
+}
 .stat-item {
     padding: 16px;
     background: var(--vscode-list-hoverBackground);
@@ -290,6 +299,10 @@ body {
     overflow: auto;
     max-height: 600px;
     position: relative;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
 }
 .image-canvas {
     image-rendering: pixelated;
@@ -298,6 +311,25 @@ body {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
     cursor: crosshair;
     transition: width 0.15s ease, height 0.15s ease;
+}
+.colorbar-canvas {
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+}
+.colorbar-labels {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    font-family: monospace;
+    padding: 0 4px;
+    flex-shrink: 0;
+}
+.cbar-max, .cbar-mid, .cbar-min {
+    white-space: nowrap;
 }
 .image-toolbar {
     display: flex;
