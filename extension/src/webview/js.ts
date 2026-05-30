@@ -225,6 +225,8 @@ var COLORMAPS = {
     })()
 };
 
+var BUILTIN_COLORMAP_NAMES = ['grayscale','viridis','inferno','plasma','hot','jet','turbo','coolwarm','rdbu'];
+
 var canvasRenderScheduled = false;
 var pendingCanvasData = null;
 
@@ -532,7 +534,11 @@ function renderStats(stats) {
 
     if (stats.percentiles) {
         html += '<div class="mini-histogram-container">';
-        html += '<canvas id="miniHistogram" class="mini-histogram" width="200" height="40"></canvas>';
+        html += '<div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:4px;">Distribution</div>';
+        html += '<canvas id="miniHistogram" class="mini-histogram" width="220" height="50"></canvas>';
+        html += '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--vscode-descriptionForeground);font-family:monospace;margin-top:2px;">';
+        html += '<span>' + formatValue(stats.min) + '</span><span>' + formatValue(stats.max) + '</span>';
+        html += '</div>';
         html += '</div>';
     }
 
@@ -858,15 +864,14 @@ function renderMiniHistogram(stats) {
     ctx.clearRect(0, 0, w, h);
 
     var p = stats.percentiles;
-    var pKeys = [p.p5, p.p25, p.p50, p.p75, p.p95];
     var min = stats.min;
     var max = stats.max;
     var range = max - min || 1;
 
-    var bins = new Array(32).fill(0);
+    var bins = new Array(40).fill(0);
     var binEdges = [];
-    for (var bi = 0; bi <= 32; bi++) {
-        binEdges.push(min + range * bi / 32);
+    for (var bi = 0; bi <= 40; bi++) {
+        binEdges.push(min + range * bi / 40);
     }
 
     var pCounts = [0.05, 0.20, 0.25, 0.25, 0.20, 0.05];
@@ -878,40 +883,44 @@ function renderMiniHistogram(stats) {
         var segRange = segMax - segMin || range * 0.01;
         var count = pCounts[seg];
 
-        for (var bj = 0; bj < 32; bj++) {
+        for (var bj = 0; bj < 40; bj++) {
             var bCenter = (binEdges[bj] + binEdges[bj + 1]) / 2;
             if (bCenter >= segMin && bCenter < segMax) {
-                bins[bj] += count / (segRange / range * 32);
+                bins[bj] += count / (segRange / range * 40);
             }
         }
     }
 
     var maxBin = 0;
-    for (var bk = 0; bk < 32; bk++) {
+    for (var bk = 0; bk < 40; bk++) {
         if (bins[bk] > maxBin) maxBin = bins[bk];
     }
     if (maxBin === 0) return;
 
-    var barW = w / 32;
-    ctx.fillStyle = 'var(--vscode-textLink-foreground)';
-    for (var bb = 0; bb < 32; bb++) {
-        var barH = (bins[bb] / maxBin) * h * 0.9;
-        ctx.globalAlpha = 0.6;
-        ctx.fillRect(bb * barW, h - barH, barW - 1, barH);
+    ctx.fillStyle = 'var(--vscode-list-hoverBackground)';
+    ctx.fillRect(0, 0, w, h);
+
+    var barW = w / 40;
+    var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
+    for (var bb = 0; bb < 40; bb++) {
+        var barH = (bins[bb] / maxBin) * h * 0.85;
+        var norm = bb / 39;
+        var rgb = colormap(norm);
+        ctx.fillStyle = 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
+        ctx.globalAlpha = 0.8;
+        ctx.fillRect(bb * barW + 1, h - barH, barW - 2, barH);
     }
     ctx.globalAlpha = 1;
 
-    var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
-    for (var pi = 0; pi < pKeys.length; pi++) {
-        var px = ((pKeys[pi] - min) / range) * w;
-        var rgb = colormap((pKeys[pi] - min) / range);
-        ctx.strokeStyle = 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(px, 0);
-        ctx.lineTo(px, h);
-        ctx.stroke();
-    }
+    ctx.strokeStyle = 'var(--vscode-descriptionForeground)';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([3, 3]);
+    var medianX = ((p.p50 - min) / range) * w;
+    ctx.beginPath();
+    ctx.moveTo(medianX, 0);
+    ctx.lineTo(medianX, h);
+    ctx.stroke();
+    ctx.setLineDash([]);
 }
 
 function renderHistogram(data, canvasId) {
@@ -1237,13 +1246,16 @@ function render2DArray(name, value) {
             '<option value="jet"' + (state.currentColormap === 'jet' ? ' selected' : '') + '>Jet</option>' +
             '<option value="turbo"' + (state.currentColormap === 'turbo' ? ' selected' : '') + '>Turbo</option>' +
             '<option value="coolwarm"' + (state.currentColormap === 'coolwarm' ? ' selected' : '') + '>Coolwarm</option>' +
-            '<option value="rdbu"' + (state.currentColormap === 'rdbu' ? ' selected' : '') + '>RdBu</option>' +
-            '<option value="hot"' + (state.currentColormap === 'hot' ? ' selected' : '') + '>Hot</option>' +
-            '<option value="jet"' + (state.currentColormap === 'jet' ? ' selected' : '') + '>Jet</option>' +
-            '<option value="turbo"' + (state.currentColormap === 'turbo' ? ' selected' : '') + '>Turbo</option>' +
-            '<option value="coolwarm"' + (state.currentColormap === 'coolwarm' ? ' selected' : '') + '>Coolwarm</option>' +
-            '<option value="rdbu"' + (state.currentColormap === 'rdbu' ? ' selected' : '') + '>RdBu</option>' +
-            '</select>' +
+            '<option value="rdbu"' + (state.currentColormap === 'rdbu' ? ' selected' : '') + '>RdBu</option>';
+
+        var builtInNames = BUILTIN_COLORMAP_NAMES;
+        for (var cname in COLORMAPS) {
+            if (COLORMAPS.hasOwnProperty(cname) && builtInNames.indexOf(cname) === -1) {
+                html += '<option value="' + escapeHtml(cname) + '"' + (state.currentColormap === cname ? ' selected' : '') + '>' + escapeHtml(cname) + '</option>';
+            }
+        }
+
+        html += '</select>' +
             '</div>';
 
         html += '<div class="image-toolbar">' +
@@ -1340,7 +1352,19 @@ function renderNDArray(name, value) {
             '<option value="viridis"' + (state.currentColormap === 'viridis' ? ' selected' : '') + '>Viridis</option>' +
             '<option value="inferno"' + (state.currentColormap === 'inferno' ? ' selected' : '') + '>Inferno</option>' +
             '<option value="plasma"' + (state.currentColormap === 'plasma' ? ' selected' : '') + '>Plasma</option>' +
-            '</select>';
+            '<option value="hot"' + (state.currentColormap === 'hot' ? ' selected' : '') + '>Hot</option>' +
+            '<option value="jet"' + (state.currentColormap === 'jet' ? ' selected' : '') + '>Jet</option>' +
+            '<option value="turbo"' + (state.currentColormap === 'turbo' ? ' selected' : '') + '>Turbo</option>' +
+            '<option value="coolwarm"' + (state.currentColormap === 'coolwarm' ? ' selected' : '') + '>Coolwarm</option>' +
+            '<option value="rdbu"' + (state.currentColormap === 'rdbu' ? ' selected' : '') + '>RdBu</option>';
+
+        for (var cname2 in COLORMAPS) {
+            if (COLORMAPS.hasOwnProperty(cname2) && BUILTIN_COLORMAP_NAMES.indexOf(cname2) === -1) {
+                html += '<option value="' + escapeHtml(cname2) + '"' + (state.currentColormap === cname2 ? ' selected' : '') + '>' + escapeHtml(cname2) + '</option>';
+            }
+        }
+
+        html += '</select>';
 
         if (ndim >= 3) {
             var numSlices = value.shape[state.currentAxis] || 0;
@@ -1604,6 +1628,20 @@ function handleFileLoaded(message) {
     state.windowWidth = 1.0;
     canvasTransformState = { rotation: 0, flipH: false, flipV: false };
     fileInfo.textContent = (matData.version || 'v?') + ' \\u00B7 ' + (matData.file_path || '');
+
+    if (message.customColormaps && typeof message.customColormaps === 'object') {
+        var cmaps = message.customColormaps;
+        for (var name in cmaps) {
+            if (cmaps.hasOwnProperty(name) && Array.isArray(cmaps[name])) {
+                try {
+                    var lut = buildLUT(cmaps[name]);
+                    COLORMAPS[name] = (function(l) {
+                        return function(t) { return l[Math.min(255, Math.max(0, Math.round(t * 255)))]; };
+                    })(lut);
+                } catch(e) {}
+            }
+        }
+    }
 
     state.currentActiveVariable = null;
     var searchFilter = sidebarSearch ? sidebarSearch.value : '';

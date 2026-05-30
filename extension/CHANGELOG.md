@@ -8,6 +8,27 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.17] - 2026-05-30
+
+### Fixed
+
+- Critical bug: `builtInNames` variable was undefined in `renderNDArray`, causing 3D+ tensor views to crash — now extracted as global `BUILTIN_COLORMAP_NAMES`
+- Critical bug: `_process_value(None)` returned string `"None"` instead of `null`, causing v7.3 HDF5 struct fields to display as "None" — now returns `null` so h5py fallback can correctly fill the data
+
+### Changed
+
+- Improved mini-histogram: bars now use colormap colors instead of confusing percentile lines; only median line shown as dashed; added "Distribution" title and min/max axis labels
+- Improved colorbar: cleaner border style, wider label area
+- Removed ROI selection feature (not essential)
+
+## [1.3.16] - 2026-05-30
+
+### Added
+
+- Custom colormap support — define your own colormaps in VS Code settings (`matrixspy.customColormaps`) as key-point arrays; they appear in the colormap selector alongside built-in options
+- Fixed duplicate colormap options in the selector dropdown
+- ROI (Region of Interest) selection — hold Shift + drag on the image canvas to select a rectangular region; displays mean, std, min, max, and pixel count; double-click to clear selection
+
 ## [1.3.15] - 2026-05-30
 
 ### Added

@@ -313,8 +313,8 @@ body {
     transition: width 0.15s ease, height 0.15s ease;
 }
 .colorbar-canvas {
-    border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.3));
     flex-shrink: 0;
 }
 .colorbar-labels {
@@ -325,8 +325,9 @@ body {
     font-size: 10px;
     color: var(--vscode-descriptionForeground);
     font-family: monospace;
-    padding: 0 4px;
+    padding: 0 6px;
     flex-shrink: 0;
+    min-width: 60px;
 }
 .cbar-max, .cbar-mid, .cbar-min {
     white-space: nowrap;

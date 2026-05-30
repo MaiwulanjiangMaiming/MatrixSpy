@@ -345,6 +345,8 @@ class HighPerfMatParser:
 
     def _process_value(self, value: Any, is_root: bool = False,
                       force_load: bool = False) -> Any:
+        if value is None:
+            return None
         if isinstance(value, np.ndarray):
             return self._process_array(value, force_load)
         elif isinstance(value, (np.integer,)):

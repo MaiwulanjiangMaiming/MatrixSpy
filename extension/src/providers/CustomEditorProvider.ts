@@ -57,7 +57,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             ]
         };
 
-        const version = this.context.extension.packageJSON.version || '1.3.15';
+        const version = this.context.extension.packageJSON.version || '1.3.17';
         webviewPanel.webview.html = getHtml(version);
 
         const loadingMsg: ExtensionToWebview = { command: 'loadingStart', message: 'Loading file...' };
@@ -137,7 +137,8 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
 
             webviewPanel.webview.postMessage({
                 command: 'fileLoaded',
-                data: result
+                data: result,
+                customColormaps: vscode.workspace.getConfiguration('matrixspy').get<Record<string, number[][]>>('customColormaps', {})
             });
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
