@@ -46,6 +46,8 @@ var sliceCache = {};
 var SLICE_CACHE_MAX = 10;
 var prefetchQueue = [];
 var isPrefetching = false;
+var lastSliceDirection = 1;
+var lastSliceIndex = -1;
 
 function sliceCacheKey(axis, index) {
     return state.currentActiveVariable + ':' + axis + ':' + index;
@@ -68,10 +70,22 @@ function sliceCacheGet(axis, index) {
 function sliceCacheClear() {
     sliceCache = {};
     prefetchQueue = [];
+    lastSliceIndex = -1;
+    lastSliceDirection = 1;
 }
 
 function prefetchSlices(axis, currentIndex, maxSlice) {
-    var indices = [currentIndex + 1, currentIndex + 2, currentIndex - 1];
+    if (lastSliceIndex >= 0 && currentIndex !== lastSliceIndex) {
+        lastSliceDirection = currentIndex > lastSliceIndex ? 1 : -1;
+    }
+    lastSliceIndex = currentIndex;
+
+    var indices;
+    if (lastSliceDirection > 0) {
+        indices = [currentIndex + 1, currentIndex + 2, currentIndex + 3, currentIndex - 1];
+    } else {
+        indices = [currentIndex - 1, currentIndex - 2, currentIndex - 3, currentIndex + 1];
+    }
     for (var i = 0; i < indices.length; i++) {
         var idx = indices[i];
         if (idx >= 0 && idx < maxSlice && !sliceCacheGet(axis, idx) && prefetchQueue.indexOf(idx) === -1) {
