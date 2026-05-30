@@ -27,7 +27,6 @@ All notable changes to MatrixSpy will be documented in this file.
 
 - Custom colormap support — define your own colormaps in VS Code settings (`matrixspy.customColormaps`) as key-point arrays; they appear in the colormap selector alongside built-in options
 - Fixed duplicate colormap options in the selector dropdown
-- ROI (Region of Interest) selection — hold Shift + drag on the image canvas to select a rectangular region; displays mean, std, min, max, and pixel count; double-click to clear selection
 
 ## [1.3.15] - 2026-05-30
 

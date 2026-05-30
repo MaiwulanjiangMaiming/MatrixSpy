@@ -23,7 +23,7 @@ A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.
   - 2D matrices as heatmaps or tables
   - 3D/4D+ tensors with slice viewer and zoom controls
   - Complex numbers: Magnitude / Phase / Real / Imag
-- **9 Colormaps**: Grayscale, Viridis, Inferno, Plasma, Hot, Jet, Turbo, Coolwarm, RdBu
+- **9 Colormaps**: Grayscale, Viridis, Inferno, Plasma, Hot, Jet, Turbo, Coolwarm, RdBu (+ custom colormaps via settings)
 - **Keyboard shortcuts**: Arrow keys for slices, +/- for zoom, T/I for view mode, C for colormap
 - **Image enhancement**: Window/Level contrast, rotate, flip horizontal/vertical
 - **Variable search & filter**: Search box in sidebar with type: prefix filtering
@@ -32,7 +32,7 @@ A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.
 - **Zoom persistence**: zoom level kept when switching slices/axis/view mode
 - **Tree view** for variable navigation with expandable structs
 - **Lazy loading** for large 3D tensors and HDF5 datasets
-- **Export**: CSV, JSON, NumPy NPY, PNG Image
+- **Export**: CSV, JSON, NumPy NPY, PNG Image, HDF5
 - **Setup wizard** with automatic dependency detection
 
 ## Prerequisites
@@ -98,7 +98,7 @@ When viewing tensors in Image mode:
 
 ### Export
 
-- Command Palette → "MatrixSpy: Export to CSV" / "Export to JSON" / "Export to NumPy" / "Export to PNG"
+- Command Palette → "MatrixSpy: Export to CSV" / "Export to JSON" / "Export to NumPy" / "Export to PNG" / "Export to HDF5"
 
 ## Configuration
 
@@ -112,6 +112,22 @@ When viewing tensors in Image mode:
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
+
+### v1.3.17 Highlights (2026-05-30)
+
+- **Critical bug fixes**: 3D+ tensor view crash, v7.3 struct fields showing "None"
+- **Improved histogram**: colormap-colored bars, cleaner design
+- **Removed**: ROI selection feature (not essential)
+
+### v1.3.16 Highlights (2026-05-30)
+
+- **Custom colormaps**: Define your own in VS Code settings
+- **Fixed**: Duplicate colormap options in dropdown
+
+### v1.3.14 Highlights (2026-05-30)
+
+- **HDF5 export**: Export variables to HDF5 format with gzip compression
+- **Slice real-time refresh**: Instant rendering when dragging slice slider
 
 ### v1.3.0 Highlights (2026-05-24)
 
