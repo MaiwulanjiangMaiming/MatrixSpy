@@ -483,18 +483,40 @@ function get2DSlice(value, viewMode) {
     return data;
 }
 
-function get3DSlice(value, axis, sliceIndex, viewMode) {
+function getNDSlice(value, axis, sliceIndex, viewMode) {
     if (!value.data) return null;
 
-    var sliceData = null;
-
-    if (axis === 0) {
-        sliceData = value.data[sliceIndex];
-    } else if (axis === 1) {
-        sliceData = value.data.map(function(row) { return row[sliceIndex]; });
-    } else if (axis === 2) {
-        sliceData = value.data.map(function(row) { return row.map(function(col) { return col[sliceIndex]; }); });
+    function extractSlice(data, targetAxis, currentAxis, idx) {
+        if (currentAxis === targetAxis) {
+            return data[idx];
+        }
+        if (Array.isArray(data)) {
+            return data.map(function(item) {
+                return extractSlice(item, targetAxis, currentAxis + 1, idx);
+            });
+        }
+        return data;
     }
+
+    var sliceData = extractSlice(value.data, axis, 0, sliceIndex);
+
+    function flattenTo2D(data) {
+        if (!Array.isArray(data)) return [[data]];
+        if (!Array.isArray(data[0])) return [data];
+        if (Array.isArray(data[0][0])) {
+            var result = [];
+            for (var i = 0; i < data.length; i++) {
+                var flat = flattenTo2D(data[i]);
+                for (var j = 0; j < flat.length; j++) {
+                    result.push(flat[j]);
+                }
+            }
+            return result;
+        }
+        return data;
+    }
+
+    sliceData = flattenTo2D(sliceData);
 
     if (sliceData && value.complex) {
         if (viewMode === 'magnitude') {
@@ -906,7 +928,7 @@ function formatTableCell(v) {
 
 function render3DTable(value) {
     var sliceData = value.data
-        ? get3DSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode)
+        ? getNDSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode)
         : state.currentLoadedSliceData;
 
     if (!sliceData) {
@@ -1112,7 +1134,7 @@ function renderNDArray(name, value) {
         if (ndim > 2) {
             html += '<label>View Axis:</label>' +
                 '<select data-action="setAxis">';
-            for (var ai = 0; ai < Math.min(ndim, 4); ai++) {
+            for (var ai = 0; ai < ndim; ai++) {
                 html += '<option value="' + ai + '" ' + (state.currentAxis === ai ? 'selected' : '') + '>Axis ' + ai + ' (' + value.shape[ai] + ')</option>';
             }
             html += '</select>';
@@ -1177,8 +1199,8 @@ function renderNDArray(name, value) {
             '<div class="canvas-dimensions" id="canvasDimensions"></div>' +
             '</div>';
 
-        if (hasData && ndim === 3) {
-            var sliceData = get3DSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode);
+        if (hasData && ndim >= 3) {
+            var sliceData = getNDSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode);
             scheduleCanvasRender(sliceData);
         } else if (!hasData && ndim >= 3) {
             setTimeout(function() { requestSliceFromBackend(state.currentAxis, state.currentSlice); }, 100);
@@ -1189,7 +1211,7 @@ function renderNDArray(name, value) {
         if (ndim > 2) {
             html += '<label>View Axis:</label>' +
                 '<select data-action="setAxis">';
-            for (var tai = 0; tai < Math.min(ndim, 4); tai++) {
+            for (var tai = 0; tai < ndim; tai++) {
                 html += '<option value="' + tai + '" ' + (state.currentAxis === tai ? 'selected' : '') + '>Axis ' + tai + ' (' + value.shape[tai] + ')</option>';
             }
             html += '</select>';
@@ -1312,7 +1334,7 @@ function setAxis(axis) {
         mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
 
         if (state.fullVariableData.data && state.currentDisplayMode === 'image') {
-            var sliceData = get3DSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
+            var sliceData = getNDSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
             scheduleCanvasRender(sliceData);
         }
     }
@@ -1335,7 +1357,7 @@ function updateSlice(value) {
             }
 
             if (state.currentDisplayMode === 'image') {
-                var sliceData = get3DSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
+                var sliceData = getNDSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
                 scheduleCanvasRender(sliceData);
             } else {
                 mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
@@ -1366,7 +1388,7 @@ function updateWindowLevel() {
     state.dirty = true;
     if (state.fullVariableData && state.currentVariableData) {
         var sliceData = state.fullVariableData.shape.length >= 3
-            ? get3DSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode)
+            ? getNDSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode)
             : get2DSlice(state.fullVariableData, state.currentViewMode);
         scheduleCanvasRender(sliceData);
     }
