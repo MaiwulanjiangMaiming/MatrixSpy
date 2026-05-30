@@ -1426,6 +1426,23 @@ function handleShowVariable(message) {
     }
 }
 
+function handleLoadingProgress(message) {
+    var progressBar = document.getElementById('loadingProgressBar');
+    var progressText = document.getElementById('loadingProgressText');
+    if (progressBar) {
+        progressBar.style.width = message.progress + '%';
+    }
+    if (progressText) {
+        var stageLabels = {
+            'detecting_format': 'Detecting format...',
+            'parsing_structure': 'Parsing structure...',
+            'loading_variables': 'Loading variables...',
+            'generating_preview': 'Generating preview...'
+        };
+        progressText.textContent = stageLabels[message.stage] || message.stage;
+    }
+}
+
 function handleError(message) {
     mainContent.innerHTML = '<div class="error">Error: ' + escapeHtml(message.error) + '</div>';
 }
@@ -1439,6 +1456,16 @@ function handleMessage(event) {
         handleSliceLoaded(message);
     } else if (message.command === 'showVariable') {
         handleShowVariable(message);
+    } else if (message.command === 'loadingStart') {
+        mainContent.innerHTML = '<div class="loading-container">' +
+            '<div class="loading-spinner"></div>' +
+            '<div class="loading-bar-container">' +
+            '<div class="loading-bar" id="loadingProgressBar" style="width: 0%"></div>' +
+            '</div>' +
+            '<p id="loadingProgressText">Loading file...</p>' +
+            '</div>';
+    } else if (message.command === 'loadingProgress') {
+        handleLoadingProgress(message);
     } else if (message.command === 'error') {
         handleError(message);
     }

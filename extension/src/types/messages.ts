@@ -8,4 +8,5 @@ export type ExtensionToWebview =
     | { command: 'sliceLoaded'; success: boolean; data?: any; error?: string }
     | { command: 'showVariable'; variableName: string }
     | { command: 'error'; error: string; retryable?: boolean }
-    | { command: 'loadingStart'; message: string };
+    | { command: 'loadingStart'; message: string }
+    | { command: 'loadingProgress'; progress: number; stage: string };

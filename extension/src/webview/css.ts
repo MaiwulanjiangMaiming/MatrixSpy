@@ -944,28 +944,20 @@ body {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
-.loading-progress {
+.loading-bar-container {
     width: 100%;
     max-width: 400px;
-}
-.progress-bar {
-    width: 100%;
-    height: 4px;
+    height: 6px;
     background: var(--vscode-list-hoverBackground);
-    border-radius: 2px;
+    border-radius: 3px;
     overflow: hidden;
-    margin-bottom: 12px;
+    margin-bottom: 16px;
 }
-.progress-fill {
+.loading-bar {
     height: 100%;
     background: var(--vscode-textLink-foreground);
-    width: 0%;
-    animation: progress 2s ease-in-out infinite;
-}
-@keyframes progress {
-    0% { width: 0%; }
-    50% { width: 70%; }
-    100% { width: 100%; }
+    border-radius: 3px;
+    transition: width 0.3s ease;
 }
 .loading-message {
     font-size: 14px;

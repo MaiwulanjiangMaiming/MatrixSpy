@@ -30,6 +30,7 @@ export class PythonBridge {
     private currentFilePath: string | null = null;
     private readonly maxProcessTimeout = 60000;
     private restarting = false;
+    private onProgressCallback: ((progress: number, stage: string) => void) | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         const extensionPath = context.extensionPath;
@@ -193,6 +194,14 @@ print(','.join(missing))`
 
     private handleResponse(response: any): void {
         const requestId = response._request_id;
+
+        if (requestId !== undefined && 'progress' in response && !('success' in response)) {
+            if (this.onProgressCallback) {
+                this.onProgressCallback(response.progress, response.stage || '');
+            }
+            return;
+        }
+
         if (requestId !== undefined && this.pendingRequests.has(requestId)) {
             const pending = this.pendingRequests.get(requestId)!;
             this.pendingRequests.delete(requestId);
@@ -424,6 +433,7 @@ print(','.join(missing))`
     async dispose(): Promise<void> {
         this.disposed = true;
         this.stopHeartbeat();
+        this.onProgressCallback = null;
 
         if (this.daemonProcess && this.daemonProcess.exitCode === null) {
             try {
@@ -442,5 +452,9 @@ print(','.join(missing))`
         }
 
         this.rejectAllPending('PythonBridge disposed');
+    }
+
+    setProgressCallback(callback: ((progress: number, stage: string) => void) | null): void {
+        this.onProgressCallback = callback;
     }
 }

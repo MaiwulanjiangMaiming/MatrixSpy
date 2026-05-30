@@ -45,14 +45,22 @@ class HighPerfMatParser:
     def __init__(self, max_preview_size: int = 1000000) -> None:
         self.max_preview_size = max_preview_size
 
-    def parse_file(self, file_path: str) -> Dict[str, Any]:
+    def parse_file(self, file_path: str, progress_callback=None) -> Dict[str, Any]:
         try:
             import os
             if not os.path.isfile(file_path):
                 raise MatParseError('FILE_NOT_FOUND', f'File not found: {file_path}')
 
+            if progress_callback:
+                progress_callback(10, 'detecting_format')
             version = self._detect_version(file_path)
             result = {}
+
+            if progress_callback:
+                progress_callback(30, 'parsing_structure')
+
+            if progress_callback:
+                progress_callback(60, 'loading_variables')
 
             if version == 'v7.3':
                 try:
@@ -90,6 +98,9 @@ class HighPerfMatParser:
                         except Exception as e:
                             print(f"Error processing variable '{key}': {e}", file=sys.stderr)
                             result[key] = {'_type': 'error', 'error': str(e)}
+
+            if progress_callback:
+                progress_callback(90, 'generating_preview')
 
             return {
                 'success': True,
@@ -559,7 +570,9 @@ def daemon_main() -> None:
                     path=request.get('path', ''),
                     _request_id=request_id or ''
                 )
-                result = parser.parse_file(req.path)
+                def on_progress(pct, stage):
+                    _respond({'progress': pct, 'stage': stage})
+                result = parser.parse_file(req.path, progress_callback=on_progress)
                 _respond(result)
             except (ValueError, TypeError) as e:
                 _respond({'error': str(e), 'code': 'VALIDATION_ERROR'})

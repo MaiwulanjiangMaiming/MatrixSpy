@@ -57,7 +57,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             ]
         };
 
-        const version = this.context.extension.packageJSON.version || '1.3.5';
+        const version = this.context.extension.packageJSON.version || '1.3.6';
         webviewPanel.webview.html = getHtml(version);
 
         const loadingMsg: ExtensionToWebview = { command: 'loadingStart', message: 'Loading file...' };
@@ -118,7 +118,13 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         const MAX_RETRIES = 3;
 
         try {
+            this.pythonBridge.setProgressCallback((progress, stage) => {
+                webviewPanel.webview.postMessage({ command: 'loadingProgress', progress, stage });
+            });
+
             const result = await this.pythonBridge.parseFile(filePath);
+
+            this.pythonBridge.setProgressCallback(null);
 
             if (result.success && result.data) {
                 cacheFileData(filePath, result.data);
