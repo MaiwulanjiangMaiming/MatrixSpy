@@ -66,31 +66,16 @@ class HighPerfMatParser:
                 try:
                     import mat73
                     data = mat73.loadmat(file_path, use_attrdict=True)
-                    none_keys = []
                     for key in data:
                         if key.startswith('#') or key.startswith('__'):
-                            continue
-                        if data[key] is None:
-                            none_keys.append(key)
                             continue
                         try:
                             result[key] = self._process_value(data[key], is_root=True)
                         except Exception as e:
                             print(f"Error processing variable '{key}': {e}", file=sys.stderr)
                             result[key] = {'_type': 'error', 'error': str(e)}
-                    if none_keys:
-                        with h5py.File(file_path, 'r') as f:
-                            for key in none_keys:
-                                if key in f:
-                                    try:
-                                        item = f[key]
-                                        if isinstance(item, h5py.Dataset):
-                                            result[key] = self._process_hdf5_dataset(item)
-                                        elif isinstance(item, h5py.Group):
-                                            result[key] = self._process_hdf5_group(item)
-                                    except Exception as e:
-                                        print(f"Error processing variable '{key}' via h5py fallback: {e}", file=sys.stderr)
-                                        result[key] = {'_type': 'error', 'error': str(e)}
+                    with h5py.File(file_path, 'r') as f:
+                        self._fill_none_from_hdf5(result, f)
                 except ImportError:
                     with h5py.File(file_path, 'r') as f:
                         for key in f.keys():
@@ -221,6 +206,50 @@ class HighPerfMatParser:
                 'error': str(e),
                 'variable_name': variable_name
             }
+
+    def _fill_none_from_hdf5(self, result: Dict[str, Any], h5file: h5py.File) -> None:
+        for key in list(result.keys()):
+            val = result[key]
+            if val is None and key in h5file:
+                try:
+                    item = h5file[key]
+                    if isinstance(item, h5py.Dataset):
+                        result[key] = self._process_hdf5_dataset(item)
+                    elif isinstance(item, h5py.Group):
+                        result[key] = self._process_hdf5_group(item)
+                except Exception as e:
+                    print(f"Error filling None for '{key}' via h5py: {e}", file=sys.stderr)
+                    result[key] = {'_type': 'error', 'error': str(e)}
+            elif isinstance(val, dict) and val.get('_type') == 'struct' and key in h5file:
+                try:
+                    item = h5file[key]
+                    if isinstance(item, h5py.Group):
+                        self._fill_none_in_struct(val, item)
+                except Exception:
+                    pass
+
+    def _fill_none_in_struct(self, struct: Dict[str, Any], h5group: h5py.Group) -> None:
+        for key in list(struct.keys()):
+            if key == '_type':
+                continue
+            val = struct[key]
+            if val is None and key in h5group:
+                try:
+                    item = h5group[key]
+                    if isinstance(item, h5py.Dataset):
+                        struct[key] = self._process_hdf5_dataset(item)
+                    elif isinstance(item, h5py.Group):
+                        struct[key] = self._process_hdf5_group(item)
+                except Exception as e:
+                    print(f"Error filling None for struct field '{key}': {e}", file=sys.stderr)
+                    struct[key] = {'_type': 'error', 'error': str(e)}
+            elif isinstance(val, dict) and val.get('_type') == 'struct' and key in h5group:
+                try:
+                    item = h5group[key]
+                    if isinstance(item, h5py.Group):
+                        self._fill_none_in_struct(val, item)
+                except Exception:
+                    pass
 
     def _process_hdf5_dataset(self, item: h5py.Dataset) -> Dict[str, Any]:
         result = {

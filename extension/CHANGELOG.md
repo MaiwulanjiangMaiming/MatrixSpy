@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.11] - 2026-05-30
+
+### Fixed
+
+- Fixed v7.3 nested HDF5 groups showing "None" for child datasets — added recursive `_fill_none_from_hdf5` / `_fill_none_in_struct` to replace all None values with h5py direct reads
+- Fixed content still not being copyable in webview — changed to `user-select: text` on `.main-content *` with exclusions for canvas/buttons
+
 ## [1.3.10] - 2026-05-30
 
 ### Fixed

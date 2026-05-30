@@ -57,7 +57,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             ]
         };
 
-        const version = this.context.extension.packageJSON.version || '1.3.10';
+        const version = this.context.extension.packageJSON.version || '1.3.11';
         webviewPanel.webview.html = getHtml(version);
 
         const loadingMsg: ExtensionToWebview = { command: 'loadingStart', message: 'Loading file...' };

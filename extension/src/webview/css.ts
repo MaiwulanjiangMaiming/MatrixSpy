@@ -9,16 +9,16 @@ body {
     overflow: hidden;
     transition: background 0.3s ease, color 0.3s ease;
 }
-.main-content {
+.main-content,
+.main-content * {
     user-select: text;
     -webkit-user-select: text;
 }
-.main-content pre,
-.main-content code,
-.main-content .value-text,
-.main-content .stat-value {
-    user-select: text;
-    -webkit-user-select: text;
+.image-canvas,
+.toolbar-btn,
+.sidebar-tree-item {
+    user-select: none;
+    -webkit-user-select: none;
 }
 .app {
     display: flex;
