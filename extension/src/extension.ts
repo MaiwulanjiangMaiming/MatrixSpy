@@ -4,6 +4,7 @@ import { MatVariableTreeDataProvider, setCurrentData, setCurrentWebviewPanel, sh
 import { PythonBridge, DependencyCheckResult } from './ipc/PythonBridge';
 import { openFileCommand } from './commands/openFile';
 import { exportCSVCommand, exportJSONCommand, exportNPYCommand, exportPNGCommand, exportHDF5Command, exportXLSXCommand } from './commands/exportData';
+import { generateCodeCommand } from './commands/generateCode';
 import { installDepsCommand, testEnvironmentCommand } from './commands/walkthroughCommands';
 import { MatFileData } from './types';
 
@@ -265,6 +266,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('matrixspy.exportPNG', () => exportPNGCommand()),
         vscode.commands.registerCommand('matrixspy.exportHDF5', () => exportHDF5Command()),
         vscode.commands.registerCommand('matrixspy.exportXLSX', () => exportXLSXCommand()),
+        vscode.commands.registerCommand('matrixspy.generateCode', () => generateCodeCommand()),
         vscode.commands.registerCommand('matrixspy.refreshVariables', async () => {
             const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
             if (tab?.input instanceof vscode.TabInputCustom && tab.input.viewType === 'matrixspy.matFile') {

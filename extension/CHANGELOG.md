@@ -8,6 +8,12 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.3.19] - 2026-06-01
+
+### Added
+
+- Generate Python Code command — select a variable and generate a ready-to-run Python script with `scipy.io.loadmat` + `matplotlib` visualization code, opened in a new editor tab
+
 ## [1.3.18] - 2026-06-01
 
 ### Added
