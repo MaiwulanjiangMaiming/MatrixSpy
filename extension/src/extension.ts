@@ -7,6 +7,9 @@ import { exportCSVCommand, exportJSONCommand, exportNPYCommand, exportPNGCommand
 import { generateCodeCommand } from './commands/generateCode';
 import { installDepsCommand, testEnvironmentCommand } from './commands/walkthroughCommands';
 import { MatFileData } from './types';
+import { TelemetryReporter } from '@vscode/extension-telemetry';
+
+const TELEMETRY_KEY = 'matrixspy-telemetry';
 
 const WELCOME_SHOWN_KEY = 'matrixspy.welcomeShown';
 
@@ -17,8 +20,19 @@ let currentPythonBridge: PythonBridge | null = null;
 let currentWebviewPanel: vscode.WebviewPanel | null = null;
 let currentSetupPanel: vscode.WebviewPanel | null = null;
 let statusBarItem: vscode.StatusBarItem | null = null;
+let telemetryReporter: TelemetryReporter | null = null;
+
+export function sendTelemetry(eventName: string, properties?: Record<string, string>): void {
+    const config = vscode.workspace.getConfiguration('matrixspy');
+    if (config.get('enableTelemetry', true) && telemetryReporter) {
+        telemetryReporter.sendTelemetryEvent(eventName, properties);
+    }
+}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    telemetryReporter = new TelemetryReporter(TELEMETRY_KEY);
+    context.subscriptions.push(telemetryReporter);
+
     currentPythonBridge = new PythonBridge(context);
     currentEditorProvider = new MatFileEditorProvider(context, currentPythonBridge);
     currentTreeDataProvider = new MatVariableTreeDataProvider(currentPythonBridge);
@@ -260,12 +274,12 @@ function registerTreeDataProvider(context: vscode.ExtensionContext): void {
 function registerCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixspy.openFile', openFileCommand),
-        vscode.commands.registerCommand('matrixspy.exportCSV', () => exportCSVCommand()),
-        vscode.commands.registerCommand('matrixspy.exportJSON', () => exportJSONCommand()),
-        vscode.commands.registerCommand('matrixspy.exportNPY', () => exportNPYCommand()),
-        vscode.commands.registerCommand('matrixspy.exportPNG', () => exportPNGCommand()),
-        vscode.commands.registerCommand('matrixspy.exportHDF5', () => exportHDF5Command()),
-        vscode.commands.registerCommand('matrixspy.exportXLSX', () => exportXLSXCommand()),
+        vscode.commands.registerCommand('matrixspy.exportCSV', () => { exportCSVCommand(); sendTelemetry('exportComplete', { format: 'csv' }); }),
+        vscode.commands.registerCommand('matrixspy.exportJSON', () => { exportJSONCommand(); sendTelemetry('exportComplete', { format: 'json' }); }),
+        vscode.commands.registerCommand('matrixspy.exportNPY', () => { exportNPYCommand(); sendTelemetry('exportComplete', { format: 'npy' }); }),
+        vscode.commands.registerCommand('matrixspy.exportPNG', () => { exportPNGCommand(); sendTelemetry('exportComplete', { format: 'png' }); }),
+        vscode.commands.registerCommand('matrixspy.exportHDF5', () => { exportHDF5Command(); sendTelemetry('exportComplete', { format: 'hdf5' }); }),
+        vscode.commands.registerCommand('matrixspy.exportXLSX', () => { exportXLSXCommand(); sendTelemetry('exportComplete', { format: 'xlsx' }); }),
         vscode.commands.registerCommand('matrixspy.generateCode', () => generateCodeCommand()),
         vscode.commands.registerCommand('matrixspy.refreshVariables', async () => {
             const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
@@ -406,6 +420,10 @@ export function updateCurrentWebviewPanel(panel: vscode.WebviewPanel | null): vo
 
 export function deactivate(): Thenable<void> | undefined {
     fileDataCache.clear();
+    if (telemetryReporter) {
+        telemetryReporter.dispose();
+        telemetryReporter = null;
+    }
     if (currentPythonBridge) {
         return currentPythonBridge.dispose();
     }

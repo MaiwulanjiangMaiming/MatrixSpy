@@ -45,6 +45,105 @@ const state = {
     roiState: { active: false, startX: 0, startY: 0, endX: 0, endY: 0, dragging: false }
 };
 
+function MatViewerStore() {
+    this._state = {};
+    this._listeners = [];
+    this._history = [];
+    this._historyIndex = -1;
+}
+MatViewerStore.prototype.get = function(key) { return this._state[key]; };
+MatViewerStore.prototype.set = function(key, value) {
+    var old = this._state[key];
+    this._state[key] = value;
+    this._notify(key, old, value);
+};
+MatViewerStore.prototype.getAll = function() { return Object.assign({}, this._state); };
+MatViewerStore.prototype.setMany = function(obj) {
+    for (var k in obj) {
+        if (obj.hasOwnProperty(k)) {
+            var old = this._state[k];
+            this._state[k] = obj[k];
+            this._notify(k, old, obj[k]);
+        }
+    }
+};
+MatViewerStore.prototype.subscribe = function(fn) { this._listeners.push(fn); };
+MatViewerStore.prototype._notify = function(key, oldVal, newVal) {
+    for (var i = 0; i < this._listeners.length; i++) {
+        this._listeners[i](key, oldVal, newVal);
+    }
+};
+MatViewerStore.prototype.snapshot = function() {
+    this._history = this._history.slice(0, this._historyIndex + 1);
+    this._history.push(JSON.parse(JSON.stringify(this._state)));
+    this._historyIndex = this._history.length - 1;
+    if (this._history.length > 50) {
+        this._history.shift();
+        this._historyIndex--;
+    }
+};
+MatViewerStore.prototype.undo = function() {
+    if (this._historyIndex > 0) {
+        this._historyIndex--;
+        this._state = JSON.parse(JSON.stringify(this._history[this._historyIndex]));
+        this._notify('*', null, null);
+    }
+};
+MatViewerStore.prototype.redo = function() {
+    if (this._historyIndex < this._history.length - 1) {
+        this._historyIndex++;
+        this._state = JSON.parse(JSON.stringify(this._history[this._historyIndex]));
+        this._notify('*', null, null);
+    }
+};
+MatViewerStore.prototype.persist = function() {
+    try {
+        var persistKeys = ['currentDisplayMode','currentViewMode','currentAxis','currentSlice','currentColormap','current1DViewMode','sidebarCollapsed'];
+        var obj = {};
+        for (var i = 0; i < persistKeys.length; i++) {
+            if (this._state[persistKeys[i]] !== undefined) {
+                obj[persistKeys[i]] = this._state[persistKeys[i]];
+            }
+        }
+        vscode.setState(JSON.stringify(obj));
+    } catch(e) {}
+};
+MatViewerStore.prototype.restore = function() {
+    try {
+        var saved = vscode.getState();
+        if (saved) {
+            var obj = JSON.parse(saved);
+            this.setMany(obj);
+        }
+    } catch(e) {}
+};
+
+var store = new MatViewerStore();
+store.setMany({
+    currentDisplayMode: state.currentDisplayMode,
+    currentViewMode: state.currentViewMode,
+    currentAxis: state.currentAxis,
+    currentSlice: state.currentSlice,
+    currentColormap: state.currentColormap,
+    current1DViewMode: state.current1DViewMode,
+    sidebarCollapsed: state.sidebarCollapsed
+});
+store.subscribe(function(key, oldVal, newVal) {
+    if (key !== '*') {
+        state[key] = newVal;
+    } else {
+        var all = store.getAll();
+        for (var k in all) {
+            if (all.hasOwnProperty(k) && state.hasOwnProperty(k)) {
+                state[k] = all[k];
+            }
+        }
+    }
+    store.persist();
+});
+store.restore();
+store.snapshot();
+
 var sliceCache = {};
 var SLICE_CACHE_MAX = 10;
 var prefetchQueue = [];
@@ -416,6 +515,16 @@ function selectTreeItem(path) {
     state.canvasScale = null;
     canvasTransformState = { rotation: 0, flipH: false, flipV: false };
     state.dirty = true;
+
+    store.setMany({
+        currentDisplayMode: state.currentDisplayMode,
+        currentViewMode: state.currentViewMode,
+        currentAxis: state.currentAxis,
+        currentSlice: 0,
+        currentColormap: state.currentColormap,
+        current1DViewMode: state.current1DViewMode
+    });
+    store.snapshot();
 
     state.navigationPath = [{ name: parts[0], path: parts[0] }];
     for (var ni = 1; ni < parts.length; ni++) {
@@ -2421,6 +2530,8 @@ function setAxis(axis) {
     localStorage.setItem('matViewerAxis', axis);
     localStorage.setItem('matViewerSlice', '0');
     sliceCacheClear();
+    store.setMany({ currentAxis: state.currentAxis, currentSlice: 0 });
+    store.snapshot();
 
     if (state.fullVariableData && state.currentVariableData) {
         if (!state.fullVariableData.data && state.fullVariableData.shape.length >= 3) {
@@ -2477,6 +2588,8 @@ function setColormap(colormap) {
     state.currentColormap = colormap;
     state.dirty = true;
     localStorage.setItem('matViewerColormap', colormap);
+    store.set('currentColormap', colormap);
+    store.snapshot();
     if (state.fullVariableData && state.currentVariableData) {
         refreshPreview();
     }
@@ -2714,6 +2827,8 @@ document.addEventListener('click', function(e) {
             state.currentDisplayMode = target.getAttribute('data-mode');
             state.dirty = true;
             localStorage.setItem('matViewerDisplayMode', state.currentDisplayMode);
+            store.set('currentDisplayMode', state.currentDisplayMode);
+            store.snapshot();
             if (state.fullVariableData && state.currentVariableData) {
                 refreshPreview();
             }
@@ -2921,6 +3036,19 @@ document.addEventListener('keydown', function(e) {
             var select = document.getElementById('colormapSelect');
             if (select) select.value = nextCmap;
             handled = true;
+            break;
+        case 'z':
+            if (e.ctrlKey || e.metaKey) {
+                if (e.shiftKey) {
+                    store.redo();
+                } else {
+                    store.undo();
+                }
+                if (state.fullVariableData && state.currentVariableData) {
+                    refreshPreview();
+                }
+                handled = true;
+            }
             break;
         case 'Escape':
             if (state.roiState.active) {

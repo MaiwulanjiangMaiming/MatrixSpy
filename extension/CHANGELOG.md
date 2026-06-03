@@ -8,6 +8,14 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.4.2] - 2026-06-03
+
+### Added
+
+- Optional anonymous telemetry — uses `@vscode/extension-telemetry` to send anonymized usage events (file loaded, variable selected, export completed, errors). Disabled by the `matrixspy.enableTelemetry` setting (default: enabled). No data is sent if the user opts out.
+- Centralized state management Store — new `MatViewerStore` class wraps webview state with `get`/`set`/`subscribe`/`snapshot`/`undo`/`redo`/`persist`/`restore` methods. State is persisted via `vscode.setState()` and automatically synced with the existing `state` object.
+- Undo/Redo keyboard shortcuts — `Ctrl+Z` / `Cmd+Z` to undo, `Ctrl+Shift+Z` / `Cmd+Shift+Z` to redo view state changes (display mode, colormap, axis, variable selection). Up to 50 history entries.
+
 ## [1.4.1] - 2026-06-03
 
 ### Added

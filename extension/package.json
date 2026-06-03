@@ -2,7 +2,7 @@
   "name": "matrixspy",
   "displayName": "MatrixSpy",
   "description": "A powerful VS Code extension for exploring, visualizing, and exporting MATLAB .mat files. Supports all versions (v4-v7.3), image mat data, interactive plotting, and export to CSV/JSON/NumPy. Right-click any .mat file to open!",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "publisher": "maiwulanjiangmaiming",
   "repository": {
     "type": "git",
@@ -177,6 +177,11 @@
           "type": "object",
           "default": {},
           "description": "Custom colormaps defined as key-point arrays. Each colormap is an array of [position, r, g, b] tuples where position is 0.0-1.0 and r,g,b are 0-255. Example: {\"myCmap\": [[0, 0, 0, 0], [0.5, 255, 0, 0], [1.0, 255, 255, 255]]}"
+        },
+        "matrixspy.enableTelemetry": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable anonymous usage telemetry to help improve MatrixSpy"
         }
       }
     },
@@ -257,5 +262,8 @@
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
     "typescript": "5.3.2"
+  },
+  "dependencies": {
+    "@vscode/extension-telemetry": "^1.5.2"
   }
 }

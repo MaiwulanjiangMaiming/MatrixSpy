@@ -6,7 +6,7 @@ Author: Maiwulanjiang Maiming
 
 import * as vscode from 'vscode';
 import { PythonBridge } from '../ipc/PythonBridge';
-import { updateTreeData, updateCurrentWebviewPanel, cacheFileData, updateStatusBar } from '../extension';
+import { updateTreeData, updateCurrentWebviewPanel, cacheFileData, updateStatusBar, sendTelemetry } from '../extension';
 import { getHtml } from '../webview/html';
 import type { WebviewToExtension, ExtensionToWebview } from '../types/messages';
 
@@ -110,6 +110,11 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
                 const cachedData = cacheFileData(filePath);
                 const varCount = cachedData ? Object.keys(cachedData).length : 0;
                 updateStatusBar(fileName, varCount, message.variableName, message.varInfo || null);
+                const varInfo = message.varInfo || {};
+                sendTelemetry('variableSelected', {
+                    ndim: String(varInfo.shape?.length ?? 0),
+                    dtype: varInfo.dtype || 'unknown'
+                });
             }
         };
     }
@@ -133,6 +138,10 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
                 const varCount = Object.keys(result.data).length;
                 updateStatusBar(fileName, varCount, null, null);
                 vscode.commands.executeCommand('setContext', 'matrixspy:hasActiveFile', true);
+                sendTelemetry('fileLoaded', {
+                    fileVersion: result.version || 'unknown',
+                    variableCount: String(varCount)
+                });
             }
 
             webviewPanel.webview.postMessage({
@@ -144,6 +153,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             const errorMsg = error instanceof Error ? error.message : String(error);
             const isRetryable = (error instanceof Error && error.message.includes('timeout')) ||
                 (error && typeof error === 'object' && 'retryable' in error && (error as any).retryable);
+            sendTelemetry('error', { errorCode: errorMsg.substring(0, 100) });
 
             webviewPanel.webview.postMessage({
                 command: 'error',
