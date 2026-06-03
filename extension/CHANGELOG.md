@@ -8,6 +8,14 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.4.0] - 2026-06-03
+
+### Added
+
+- 1D Line Chart View — new Canvas 2D line chart for 1D arrays with X/Y axes, grid lines, mouse hover tooltip, zoom (scroll wheel), and pan (drag). Toggle between Grid and Chart views via tabs.
+- Table Virtual Scrolling — virtual scrolling for 2D and 3D tables with >200 rows, rendering only visible rows ± buffer for smooth performance on large matrices. Fixed header row preserved.
+- Breadcrumb Navigation — breadcrumb path bar shown at top when navigating into nested structs. Each segment is clickable to navigate back.
+
 ## [1.3.19] - 2026-06-01
 
 ### Added

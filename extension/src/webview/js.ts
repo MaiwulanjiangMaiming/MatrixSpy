@@ -39,7 +39,9 @@ const state = {
     dirty: false,
     canvasScale: null,
     windowLevel: 0.5,
-    windowWidth: 1.0
+    windowWidth: 1.0,
+    current1DViewMode: localStorage.getItem('matViewer1DViewMode') || 'grid',
+    navigationPath: []
 };
 
 var sliceCache = {};
@@ -414,6 +416,12 @@ function selectTreeItem(path) {
     canvasTransformState = { rotation: 0, flipH: false, flipV: false };
     state.dirty = true;
 
+    state.navigationPath = [{ name: parts[0], path: parts[0] }];
+    for (var ni = 1; ni < parts.length; ni++) {
+        var prevPath = state.navigationPath[ni - 1].path;
+        state.navigationPath.push({ name: parts[ni], path: prevPath + '.' + parts[ni] });
+    }
+
     var varInfo = null;
     if (value && typeof value === 'object') {
         varInfo = {
@@ -428,11 +436,9 @@ function selectTreeItem(path) {
         varInfo: varInfo
     });
 
-    mainContent.innerHTML = renderPreview(parts[parts.length - 1], value);
+    mainContent.innerHTML = renderBreadcrumb() + renderPreview(parts[parts.length - 1], value);
 
-    if (value && value._type === 'ndarray' && (value.statistics || value.stats) && (value.statistics || value.stats).percentiles) {
-        setTimeout(function() { renderMiniHistogram(value.statistics || value.stats); }, 50);
-    }
+    initPreviewWidgets();
 
     document.querySelectorAll('.sidebar-tree-item').forEach(function(item) {
         item.classList.remove('active');
@@ -1049,6 +1055,249 @@ function render1DArray(value) {
     return html;
 }
 
+function render1DLineChart(value) {
+    if (!value.data) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">No data available</div>';
+
+    var data = value.data;
+    if (data.length === 0) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">Empty array</div>';
+
+    var numericData = [];
+    for (var i = 0; i < data.length; i++) {
+        var v = data[i];
+        if (v && v._type === 'complex') {
+            numericData.push(Math.sqrt(v.real * v.real + v.imag * v.imag));
+        } else if (typeof v === 'number') {
+            numericData.push(v);
+        } else {
+            numericData.push(0);
+        }
+    }
+
+    var html = '<div class="line-chart-container" style="position:relative;">';
+    html += '<canvas id="lineChart1D" width="800" height="400" style="width:100%;max-width:800px;height:400px;cursor:crosshair;"></canvas>';
+    html += '<div id="lineChartTooltip" style="display:none;position:absolute;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:4px;padding:4px 8px;font-size:12px;font-family:monospace;pointer-events:none;z-index:10;white-space:nowrap;"></div>';
+    html += '</div>';
+
+    html += '<script id="lineChartData" type="application/json">' + JSON.stringify(numericData) + '<\\/script>';
+
+    return html;
+}
+
+function initLineChart() {
+    var canvas = document.getElementById('lineChart1D');
+    if (!canvas) return;
+
+    var dataEl = document.getElementById('lineChartData');
+    if (!dataEl) return;
+
+    var data = JSON.parse(dataEl.textContent);
+    var tooltip = document.getElementById('lineChartTooltip');
+    var container = canvas.parentElement;
+
+    var padding = { top: 20, right: 30, bottom: 40, left: 60 };
+    var ctx = canvas.getContext('2d');
+
+    var zoomLevel = 1;
+    var panOffsetX = 0;
+    var isDragging = false;
+    var dragStartX = 0;
+    var dragStartPanX = 0;
+
+    function getVisibleRange() {
+        var totalWidth = data.length;
+        var visibleWidth = totalWidth / zoomLevel;
+        var startIdx = Math.max(0, Math.round(panOffsetX));
+        var endIdx = Math.min(totalWidth, Math.round(panOffsetX + visibleWidth));
+        return { start: startIdx, end: endIdx, count: endIdx - startIdx };
+    }
+
+    function drawChart() {
+        var w = canvas.width;
+        var h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        var range = getVisibleRange();
+        var visibleData = data.slice(range.start, range.end);
+        if (visibleData.length === 0) return;
+
+        var minVal = Infinity, maxVal = -Infinity;
+        for (var i = 0; i < visibleData.length; i++) {
+            if (visibleData[i] < minVal) minVal = visibleData[i];
+            if (visibleData[i] > maxVal) maxVal = visibleData[i];
+        }
+        var valRange = maxVal - minVal || 1;
+        var valPadding = valRange * 0.05;
+        minVal -= valPadding;
+        maxVal += valPadding;
+        valRange = maxVal - minVal;
+
+        var plotW = w - padding.left - padding.right;
+        var plotH = h - padding.top - padding.bottom;
+
+        var style = getComputedStyle(document.body);
+        var fgColor = style.getPropertyValue('--vscode-foreground').trim() || '#cccccc';
+        var mutedColor = style.getPropertyValue('--vscode-descriptionForeground').trim() || '#888888';
+        var accentColor = style.getPropertyValue('--vscode-textLink-foreground').trim() || '#3794ff';
+        var gridColor = style.getPropertyValue('--vscode-editorRuler-foreground').trim() || 'rgba(255,255,255,0.1)';
+
+        ctx.strokeStyle = gridColor;
+        ctx.lineWidth = 0.5;
+
+        var numYTicks = 6;
+        for (var ti = 0; ti <= numYTicks; ti++) {
+            var ty = padding.top + plotH - (ti / numYTicks) * plotH;
+            ctx.beginPath();
+            ctx.moveTo(padding.left, ty);
+            ctx.lineTo(w - padding.right, ty);
+            ctx.stroke();
+
+            var tickVal = minVal + (ti / numYTicks) * valRange;
+            ctx.fillStyle = mutedColor;
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(tickVal.toFixed(2), padding.left - 6, ty + 3);
+        }
+
+        var numXTicks = Math.min(10, visibleData.length);
+        for (var xi = 0; xi <= numXTicks; xi++) {
+            var tx = padding.left + (xi / numXTicks) * plotW;
+            ctx.beginPath();
+            ctx.moveTo(tx, padding.top);
+            ctx.lineTo(tx, h - padding.bottom);
+            ctx.stroke();
+
+            var tickIdx = range.start + Math.round((xi / numXTicks) * (range.count - 1));
+            ctx.fillStyle = mutedColor;
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(tickIdx.toString(), tx, h - padding.bottom + 16);
+        }
+
+        ctx.strokeStyle = accentColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (var di = 0; di < visibleData.length; di++) {
+            var px = padding.left + (di / Math.max(1, visibleData.length - 1)) * plotW;
+            var py = padding.top + plotH - ((visibleData[di] - minVal) / valRange) * plotH;
+            if (di === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+
+        ctx.fillStyle = mutedColor;
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Index', w / 2, h - 4);
+
+        ctx.save();
+        ctx.translate(12, h / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText('Value', 0, 0);
+        ctx.restore();
+    }
+
+    drawChart();
+
+    canvas.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var rect = canvas.getBoundingClientRect();
+        var mouseX = e.clientX - rect.left;
+        var ratio = mouseX / rect.width;
+
+        var oldZoom = zoomLevel;
+        if (e.deltaY < 0) {
+            zoomLevel = Math.min(zoomLevel * 1.2, 100);
+        } else {
+            zoomLevel = Math.max(zoomLevel / 1.2, 1);
+        }
+
+        var visibleWidth = data.length / zoomLevel;
+        var oldVisibleWidth = data.length / oldZoom;
+        var panShift = (visibleWidth - oldVisibleWidth) * ratio;
+        panOffsetX = Math.max(0, Math.min(data.length - visibleWidth, panOffsetX - panShift));
+
+        drawChart();
+    });
+
+    canvas.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartPanX = panOffsetX;
+        canvas.style.cursor = 'grabbing';
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (isDragging) {
+            var rect = canvas.getBoundingClientRect();
+            var dx = e.clientX - dragStartX;
+            var visibleWidth = data.length / zoomLevel;
+            var dataPerPixel = visibleWidth / rect.width;
+            panOffsetX = Math.max(0, Math.min(data.length - visibleWidth, dragStartPanX - dx * dataPerPixel));
+            drawChart();
+        }
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (isDragging) {
+            isDragging = false;
+            canvas.style.cursor = 'crosshair';
+        }
+    });
+
+    canvas.addEventListener('mousemove', function(e) {
+        if (isDragging || !tooltip) return;
+        var rect = canvas.getBoundingClientRect();
+        var mx = e.clientX - rect.left;
+        var my = e.clientY - rect.top;
+
+        var range = getVisibleRange();
+        var visibleData = data.slice(range.start, range.end);
+        if (visibleData.length === 0) { tooltip.style.display = 'none'; return; }
+
+        var minVal = Infinity, maxVal = -Infinity;
+        for (var i = 0; i < visibleData.length; i++) {
+            if (visibleData[i] < minVal) minVal = visibleData[i];
+            if (visibleData[i] > maxVal) maxVal = visibleData[i];
+        }
+        var valRange = maxVal - minVal || 1;
+        var valPadding = valRange * 0.05;
+        minVal -= valPadding;
+        maxVal += valPadding;
+        valRange = maxVal - minVal;
+
+        var plotW = canvas.width - padding.left - padding.right;
+        var plotH = canvas.height - padding.top - padding.bottom;
+        var scaleX = canvas.width / rect.width;
+        var scaleY = canvas.height / rect.height;
+        var canvasMx = mx * scaleX;
+        var canvasMy = my * scaleY;
+
+        if (canvasMx < padding.left || canvasMx > canvas.width - padding.right ||
+            canvasMy < padding.top || canvasMy > canvas.height - padding.bottom) {
+            tooltip.style.display = 'none';
+            return;
+        }
+
+        var dataIdx = Math.round((canvasMx - padding.left) / plotW * (visibleData.length - 1));
+        dataIdx = Math.max(0, Math.min(visibleData.length - 1, dataIdx));
+        var actualIdx = range.start + dataIdx;
+        var val = visibleData[dataIdx];
+
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = '[' + actualIdx + '] = ' + (typeof val === 'number' ? val.toFixed(6) : val);
+        var tooltipX = mx + 12;
+        var tooltipY = my - 28;
+        if (tooltipX + 120 > rect.width) tooltipX = mx - 120;
+        if (tooltipY < 0) tooltipY = my + 12;
+        tooltip.style.left = tooltipX + 'px';
+        tooltip.style.top = tooltipY + 'px';
+    });
+
+    canvas.addEventListener('mouseleave', function() {
+        if (tooltip) tooltip.style.display = 'none';
+    });
+}
+
 function render2DTable(value) {
     if (!value.data) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">No data available</div>';
 
@@ -1106,6 +1355,205 @@ function render2DTable(value) {
     }
 
     return html;
+}
+
+function render2DTableVirtual(value) {
+    if (!value.data) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">No data available</div>';
+
+    var data = value.data;
+    if (!value.shape || value.shape.length < 2) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">Invalid array shape</div>';
+    if (value.shape[0] === 0 || value.shape[1] === 0) return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">Empty array</div>';
+
+    var totalRows = value.shape[0];
+    var colsToShow = Math.min(state.currentShowCols2D, value.shape[1]);
+    var ROW_HEIGHT = 28;
+    var BUFFER = 10;
+    var HEADER_HEIGHT = 30;
+
+    var html = '<div class="virtual-table-wrapper" style="position:relative;overflow:auto;max-height:600px;" id="virtualTable2D">';
+    html += '<div style="position:sticky;top:0;z-index:2;background:var(--vscode-editor-background);">';
+    html += '<table class="data-table" style="table-layout:fixed;"><tr><th style="width:60px;"></th>';
+    for (var j = 0; j < colsToShow; j++) {
+        html += '<th>' + j + '</th>';
+    }
+    if (value.shape[1] > colsToShow) {
+        html += '<th>...</th>';
+    }
+    html += '</tr></table></div>';
+
+    html += '<div id="virtualTable2DBody" style="position:relative;height:' + (totalRows * ROW_HEIGHT) + 'px;">';
+    html += '</div></div>';
+
+    if (value.shape[1] > colsToShow) {
+        html += '<div style="margin-top: 16px; text-align: center;">';
+        html += '<button class="load-more-btn" data-action="loadMoreCols2D">Load more columns (' + colsToShow + '/' + value.shape[1] + ')</button>';
+        html += '</div>';
+    }
+
+    html += '<script id="virtualTable2DData" type="application/json">' + JSON.stringify({ totalRows: totalRows, colsToShow: colsToShow, totalCols: value.shape[1], rowHeight: ROW_HEIGHT, buffer: BUFFER }) + '<\\/script>';
+
+    return html;
+}
+
+function initVirtualTable2D() {
+    var wrapper = document.getElementById('virtualTable2D');
+    if (!wrapper) return;
+
+    var dataEl = document.getElementById('virtualTable2DData');
+    if (!dataEl) return;
+
+    var config = JSON.parse(dataEl.textContent);
+    var value = state.fullVariableData;
+    if (!value || !value.data) return;
+
+    var data = value.data;
+    var totalRows = config.totalRows;
+    var colsToShow = config.colsToShow;
+    var totalCols = config.totalCols;
+    var ROW_HEIGHT = config.rowHeight;
+    var BUFFER = config.buffer;
+
+    var bodyEl = document.getElementById('virtualTable2DBody');
+    if (!bodyEl) return;
+
+    function renderVisibleRows() {
+        var scrollTop = wrapper.scrollTop;
+        var viewportHeight = wrapper.clientHeight - 30;
+
+        var startRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER);
+        var endRow = Math.min(totalRows, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + BUFFER);
+
+        var html = '<table class="data-table" style="table-layout:fixed;position:absolute;top:' + (startRow * ROW_HEIGHT) + 'px;left:0;width:100%;">';
+
+        for (var i = startRow; i < endRow; i++) {
+            html += '<tr style="height:' + ROW_HEIGHT + 'px;"><th>' + i + '</th>';
+            var row = data[i];
+            for (var jj = 0; jj < colsToShow; jj++) {
+                var v = row ? row[jj] : null;
+                html += '<td>' + formatTableCell(v) + '</td>';
+            }
+            if (totalCols > colsToShow) {
+                html += '<td>...</td>';
+            }
+            html += '</tr>';
+        }
+
+        html += '</table>';
+        bodyEl.innerHTML = html;
+    }
+
+    renderVisibleRows();
+
+    var scrollTimeout = null;
+    wrapper.addEventListener('scroll', function() {
+        if (scrollTimeout) clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(renderVisibleRows, 16);
+    });
+}
+
+function render3DTableVirtual(value) {
+    var sliceData = value.data
+        ? getNDSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode)
+        : state.currentLoadedSliceData;
+
+    if (!sliceData) {
+        return '<div style="padding: 20px; text-align: center;">' +
+            '<p style="color: var(--vscode-descriptionForeground);">Large tensor - switch to <b>Image</b> mode for slice visualization, or the data is too large for table display.</p>' +
+            '<p id="tableLoadingIndicator" style="margin-top:12px; color: var(--vscode-textLink-foreground); font-size:12px;"></p>' +
+            '</div>';
+    }
+
+    var totalRows = sliceData.length;
+    var totalCols = sliceData[0] ? sliceData[0].length : 0;
+    var colsToShow = Math.min(state.currentShowCols2D, totalCols);
+    var ROW_HEIGHT = 28;
+    var BUFFER = 10;
+
+    var html = '<div class="virtual-table-wrapper" style="position:relative;overflow:auto;max-height:600px;" id="virtualTable3D">';
+    html += '<div style="position:sticky;top:0;z-index:2;background:var(--vscode-editor-background);">';
+    html += '<table class="data-table" style="table-layout:fixed;"><tr><th style="width:60px;"></th>';
+    for (var j = 0; j < colsToShow; j++) {
+        html += '<th>' + j + '</th>';
+    }
+    if (totalCols > colsToShow) {
+        html += '<th>...</th>';
+    }
+    html += '</tr></table></div>';
+
+    html += '<div id="virtualTable3DBody" style="position:relative;height:' + (totalRows * ROW_HEIGHT) + 'px;">';
+    html += '</div></div>';
+
+    if (totalRows > 0 || totalCols > colsToShow) {
+        html += '<div style="margin-top: 16px; text-align: center; display: flex; gap: 12px; justify-content: center;">';
+        if (totalCols > colsToShow) {
+            html += '<button class="load-more-btn" data-action="loadMoreCols2D">Load more columns (' + colsToShow + '/' + totalCols + ')</button>';
+        }
+        html += '</div>';
+    }
+
+    html += '<script id="virtualTable3DData" type="application/json">' + JSON.stringify({ totalRows: totalRows, colsToShow: colsToShow, totalCols: totalCols, rowHeight: ROW_HEIGHT, buffer: BUFFER }) + '<\\/script>';
+
+    return html;
+}
+
+function initVirtualTable3D() {
+    var wrapper = document.getElementById('virtualTable3D');
+    if (!wrapper) return;
+
+    var dataEl = document.getElementById('virtualTable3DData');
+    if (!dataEl) return;
+
+    var config = JSON.parse(dataEl.textContent);
+    var value = state.fullVariableData;
+    if (!value) return;
+
+    var sliceData = value.data
+        ? getNDSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode)
+        : state.currentLoadedSliceData;
+    if (!sliceData) return;
+
+    var totalRows = config.totalRows;
+    var colsToShow = config.colsToShow;
+    var totalCols = config.totalCols;
+    var ROW_HEIGHT = config.rowHeight;
+    var BUFFER = config.buffer;
+
+    var bodyEl = document.getElementById('virtualTable3DBody');
+    if (!bodyEl) return;
+
+    function renderVisibleRows() {
+        var scrollTop = wrapper.scrollTop;
+        var viewportHeight = wrapper.clientHeight - 30;
+
+        var startRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER);
+        var endRow = Math.min(totalRows, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + BUFFER);
+
+        var html = '<table class="data-table" style="table-layout:fixed;position:absolute;top:' + (startRow * ROW_HEIGHT) + 'px;left:0;width:100%;">';
+
+        for (var i = startRow; i < endRow; i++) {
+            html += '<tr style="height:' + ROW_HEIGHT + 'px;"><th>' + i + '</th>';
+            var row = sliceData[i];
+            for (var jj = 0; jj < colsToShow; jj++) {
+                var v = row ? row[jj] : null;
+                html += '<td>' + formatTableCell(v) + '</td>';
+            }
+            if (totalCols > colsToShow) {
+                html += '<td>...</td>';
+            }
+            html += '</tr>';
+        }
+
+        html += '</table>';
+        bodyEl.innerHTML = html;
+    }
+
+    renderVisibleRows();
+
+    var scrollTimeout = null;
+    wrapper.addEventListener('scroll', function() {
+        if (scrollTimeout) clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(renderVisibleRows, 16);
+    });
 }
 
 function formatTableCell(v) {
@@ -1208,6 +1656,28 @@ function renderStruct(name, value) {
     return html;
 }
 
+function renderBreadcrumb() {
+    if (!state.navigationPath || state.navigationPath.length <= 1) return '';
+
+    var html = '<div class="breadcrumb-bar" style="display:flex;align-items:center;gap:4px;padding:6px 12px;background:var(--vscode-breadcrumbBackground,var(--vscode-editor-background));border-bottom:1px solid var(--vscode-panel-border);font-size:12px;flex-wrap:wrap;">';
+
+    for (var i = 0; i < state.navigationPath.length; i++) {
+        if (i > 0) {
+            html += '<span class="breadcrumb-sep" style="color:var(--vscode-descriptionForeground);margin:0 2px;">\\u203A</span>';
+        }
+        var item = state.navigationPath[i];
+        var isLast = (i === state.navigationPath.length - 1);
+        if (isLast) {
+            html += '<span class="breadcrumb-item breadcrumb-current" style="color:var(--vscode-foreground);font-weight:500;">' + escapeHtml(item.name) + '</span>';
+        } else {
+            html += '<a class="breadcrumb-item breadcrumb-link" data-action="breadcrumbNav" data-nav-index="' + i + '" style="color:var(--vscode-textLink-foreground);cursor:pointer;text-decoration:none;">' + escapeHtml(item.name) + '</a>';
+        }
+    }
+
+    html += '</div>';
+    return html;
+}
+
 function render2DArray(name, value) {
     var stats = value.statistics || value.stats || {};
 
@@ -1294,7 +1764,7 @@ function render2DArray(name, value) {
         var sliceData = get2DSlice(value, state.currentViewMode);
         scheduleCanvasRender(sliceData);
     } else {
-        html += render2DTable(value);
+        html += (value.shape[0] > 200 ? render2DTableVirtual(value) : render2DTable(value));
     }
 
     html += '</div></div>';
@@ -1434,7 +1904,11 @@ function renderNDArray(name, value) {
 
         html += '</div>';
 
-        html += render3DTable(value);
+        var sliceDataForCheck = value.data
+            ? getNDSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode)
+            : state.currentLoadedSliceData;
+        var useVirtual3D = sliceDataForCheck && sliceDataForCheck.length > 200;
+        html += (useVirtual3D ? render3DTableVirtual(value) : render3DTable(value));
     }
 
     html += '</div></div>';
@@ -1492,7 +1966,17 @@ function renderPreview(name, value) {
                 '<div class="preview-content">';
 
             html += renderStats(stats);
-            html += render1DArray(value);
+
+            html += '<div class="view-tabs">' +
+                '<button class="view-tab ' + (state.current1DViewMode === 'grid' ? 'active' : '') + '" data-action="set1DViewMode" data-mode="grid">Grid</button>' +
+                '<button class="view-tab ' + (state.current1DViewMode === 'chart' ? 'active' : '') + '" data-action="set1DViewMode" data-mode="chart">Chart</button>' +
+                '</div>';
+
+            if (state.current1DViewMode === 'chart') {
+                html += render1DLineChart(value);
+            } else {
+                html += render1DArray(value);
+            }
             html += '</div></div>';
             return html;
         } else if (value.shape.length === 2) {
@@ -1525,6 +2009,38 @@ function renderPreview(name, value) {
     }
 }
 
+function refreshPreview() {
+    if (!state.fullVariableData || !state.currentVariableData) return;
+    mainContent.innerHTML = renderBreadcrumb() + renderPreview(state.currentVariableData.name, state.fullVariableData);
+    initPreviewWidgets();
+}
+
+function initPreviewWidgets() {
+    var value = state.fullVariableData;
+    if (!value) return;
+
+    if (value._type === 'ndarray' && (value.statistics || value.stats) && (value.statistics || value.stats).percentiles) {
+        setTimeout(function() { renderMiniHistogram(value.statistics || value.stats); }, 50);
+    }
+
+    if (value._type === 'ndarray' && value.shape) {
+        if (value.shape.length === 1 && state.current1DViewMode === 'chart') {
+            setTimeout(function() { initLineChart(); }, 50);
+        }
+        if (value.shape.length === 2 && value.shape[0] > 200 && state.currentDisplayMode === 'table') {
+            setTimeout(function() { initVirtualTable2D(); }, 50);
+        }
+        if (value.shape.length >= 3 && state.currentDisplayMode === 'table') {
+            var sliceDataForInit = value.data
+                ? getNDSlice(value, state.currentAxis, state.currentSlice, state.currentViewMode)
+                : state.currentLoadedSliceData;
+            if (sliceDataForInit && sliceDataForInit.length > 200) {
+                setTimeout(function() { initVirtualTable3D(); }, 50);
+            }
+        }
+    }
+}
+
 function setAxis(axis) {
     state.currentAxis = parseInt(axis);
     state.currentSlice = 0;
@@ -1546,7 +2062,7 @@ function setAxis(axis) {
             var maxSlice = state.fullVariableData.shape[state.currentAxis] || 0;
             prefetchSlices(state.currentAxis, 0, maxSlice);
         }
-        mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+        refreshPreview();
 
         if (state.fullVariableData.data && state.currentDisplayMode === 'image') {
             var sliceData = getNDSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
@@ -1580,7 +2096,7 @@ function updateSlice(value) {
             var sliceData = getNDSlice(state.fullVariableData, state.currentAxis, state.currentSlice, state.currentViewMode);
             scheduleCanvasRender(sliceData);
         } else {
-            mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+            refreshPreview();
         }
     }
 }
@@ -1590,7 +2106,7 @@ function setColormap(colormap) {
     state.dirty = true;
     localStorage.setItem('matViewerColormap', colormap);
     if (state.fullVariableData && state.currentVariableData) {
-        mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+        refreshPreview();
     }
 }
 
@@ -1807,19 +2323,19 @@ document.addEventListener('click', function(e) {
         case 'loadMore1D':
             state.currentShowCount1D += 50;
             if (state.fullVariableData && state.currentVariableData) {
-                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+                refreshPreview();
             }
             break;
         case 'loadMoreRows2D':
             state.currentShowRows2D += 50;
             if (state.fullVariableData && state.currentVariableData) {
-                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+                refreshPreview();
             }
             break;
         case 'loadMoreCols2D':
             state.currentShowCols2D += 20;
             if (state.fullVariableData && state.currentVariableData) {
-                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+                refreshPreview();
             }
             break;
         case 'setDisplayMode':
@@ -1827,7 +2343,7 @@ document.addEventListener('click', function(e) {
             state.dirty = true;
             localStorage.setItem('matViewerDisplayMode', state.currentDisplayMode);
             if (state.fullVariableData && state.currentVariableData) {
-                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+                refreshPreview();
             }
             break;
         case 'setViewMode':
@@ -1835,7 +2351,21 @@ document.addEventListener('click', function(e) {
             state.dirty = true;
             localStorage.setItem('matViewerViewMode', state.currentViewMode);
             if (state.fullVariableData && state.currentVariableData) {
-                mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+                refreshPreview();
+            }
+            break;
+        case 'set1DViewMode':
+            state.current1DViewMode = target.getAttribute('data-mode');
+            localStorage.setItem('matViewer1DViewMode', state.current1DViewMode);
+            if (state.fullVariableData && state.currentVariableData) {
+                refreshPreview();
+            }
+            break;
+        case 'breadcrumbNav':
+            var navIndex = parseInt(target.getAttribute('data-nav-index'));
+            if (navIndex >= 0 && state.navigationPath && navIndex < state.navigationPath.length) {
+                var navPath = state.navigationPath[navIndex].path;
+                selectTreeItem(navPath);
             }
             break;
         case 'windowLevel':
@@ -1946,7 +2476,7 @@ function switchDisplayMode() {
     state.dirty = true;
     localStorage.setItem('matViewerDisplayMode', state.currentDisplayMode);
     if (state.fullVariableData && state.currentVariableData) {
-        mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+        refreshPreview();
     }
 }
 
@@ -2005,7 +2535,7 @@ document.addEventListener('keydown', function(e) {
                 state.dirty = true;
                 localStorage.setItem('matViewerDisplayMode', 'image');
                 if (state.fullVariableData && state.currentVariableData) {
-                    mainContent.innerHTML = renderPreview(state.currentVariableData.name, state.fullVariableData);
+                    refreshPreview();
                 }
             }
             handled = true;
