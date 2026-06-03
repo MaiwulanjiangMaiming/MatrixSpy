@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.4.1] - 2026-06-03
+
+### Added
+
+- Web Worker canvas rendering — moves heavy colormap LUT application and pixel computation to an inline Web Worker (Blob URL) for matrices with >500K elements, keeping the main thread responsive. Falls back to main-thread rendering if Worker creation fails.
+- ROI Selection Measurement — new ROI button (⬚) in the image toolbar toggles region-of-interest mode. Drag on the canvas to draw a selection rectangle; on release, a floating stats panel shows Mean, Std, Min, Max, and Count for the selected region. Press Escape or click the ROI button again to dismiss.
+
 ## [1.4.0] - 2026-06-03
 
 ### Added

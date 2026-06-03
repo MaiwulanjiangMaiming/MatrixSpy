@@ -41,7 +41,8 @@ const state = {
     windowLevel: 0.5,
     windowWidth: 1.0,
     current1DViewMode: localStorage.getItem('matViewer1DViewMode') || 'grid',
-    navigationPath: []
+    navigationPath: [],
+    roiState: { active: false, startX: 0, startY: 0, endX: 0, endY: 0, dragging: false }
 };
 
 var sliceCache = {};
@@ -710,7 +711,268 @@ function applyCanvasTransform() {
     canvas.style.transformOrigin = 'center center';
 }
 
-function renderImageToCanvas(data) {
+function toggleROI() {
+    state.roiState.active = !state.roiState.active;
+    var roiBtn = document.getElementById('roiBtn');
+    if (roiBtn) {
+        roiBtn.classList.toggle('active', state.roiState.active);
+    }
+    if (!state.roiState.active) {
+        removeROIOverlay();
+    }
+}
+
+function removeROIOverlay() {
+    var overlay = document.getElementById('roiOverlay');
+    if (overlay) overlay.remove();
+    var statsPanel = document.getElementById('roiStatsPanel');
+    if (statsPanel) statsPanel.remove();
+}
+
+function computeROIStats(data, x1, y1, x2, y2) {
+    var minX = Math.min(x1, x2);
+    var maxX = Math.max(x1, x2);
+    var minY = Math.min(y1, y2);
+    var maxY = Math.max(y1, y2);
+    var values = [];
+    for (var y = minY; y <= maxY && y < data.length; y++) {
+        for (var x = minX; x <= maxX && x < (data[y] ? data[y].length : 0); x++) {
+            var v = data[y][x];
+            if (v !== null && v !== undefined && typeof v === 'number') {
+                values.push(v);
+            }
+        }
+    }
+    if (values.length === 0) return null;
+    var sum = 0, min = Infinity, max = -Infinity;
+    for (var i = 0; i < values.length; i++) {
+        sum += values[i];
+        if (values[i] < min) min = values[i];
+        if (values[i] > max) max = values[i];
+    }
+    var mean = sum / values.length;
+    var sumSqDiff = 0;
+    for (var j = 0; j < values.length; j++) {
+        sumSqDiff += (values[j] - mean) * (values[j] - mean);
+    }
+    var std = Math.sqrt(sumSqDiff / values.length);
+    return { mean: mean, std: std, min: min, max: max, count: values.length };
+}
+
+function renderROIOverlay() {
+    var canvas = document.getElementById('imageCanvas');
+    if (!canvas) return;
+
+    var viewer = canvas.closest('.image-viewer');
+    if (!viewer) return;
+
+    var roi = state.roiState;
+    var canvasRect = canvas.getBoundingClientRect();
+    var viewerRect = viewer.getBoundingClientRect();
+
+    var offsetX = canvasRect.left - viewerRect.left;
+    var offsetY = canvasRect.top - viewerRect.top;
+
+    var scaleX = canvasRect.width / (canvasZoomState.naturalWidth || canvasRect.width);
+    var scaleY = canvasRect.height / (canvasZoomState.naturalHeight || canvasRect.height);
+
+    var left = offsetX + Math.min(roi.startX, roi.endX) * scaleX;
+    var top = offsetY + Math.min(roi.startY, roi.endY) * scaleY;
+    var width = Math.abs(roi.endX - roi.startX) * scaleX;
+    var height = Math.abs(roi.endY - roi.startY) * scaleY;
+
+    var overlay = document.getElementById('roiOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'roiOverlay';
+        viewer.appendChild(overlay);
+    }
+    overlay.style.cssText = 'position:absolute;left:' + left + 'px;top:' + top + 'px;width:' + width + 'px;height:' + height + 'px;border:2px dashed #00ff00;pointer-events:none;z-index:5;background:rgba(0,255,0,0.05);';
+}
+
+function showROIStats(stats) {
+    var canvas = document.getElementById('imageCanvas');
+    if (!canvas) return;
+    var viewer = canvas.closest('.image-viewer');
+    if (!viewer) return;
+
+    var roi = state.roiState;
+    var canvasRect = canvas.getBoundingClientRect();
+    var viewerRect = viewer.getBoundingClientRect();
+    var scaleX = canvasRect.width / (canvasZoomState.naturalWidth || canvasRect.width);
+    var scaleY = canvasRect.height / (canvasZoomState.naturalHeight || canvasRect.height);
+
+    var left = (canvasRect.left - viewerRect.left) + Math.min(roi.startX, roi.endX) * scaleX;
+    var top = (canvasRect.top - viewerRect.top) + Math.min(roi.startY, roi.endY) * scaleY;
+    var width = Math.abs(roi.endX - roi.startX) * scaleX;
+
+    var panel = document.getElementById('roiStatsPanel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'roiStatsPanel';
+        viewer.appendChild(panel);
+    }
+    var panelLeft = left + width + 8;
+    if (panelLeft + 180 > viewerRect.width) {
+        panelLeft = left - 188;
+    }
+    panel.style.cssText = 'position:absolute;left:' + panelLeft + 'px;top:' + top + 'px;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:6px;padding:8px 12px;font-size:12px;z-index:10;pointer-events:none;min-width:160px;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+    panel.innerHTML = '<div style="font-weight:600;margin-bottom:4px;color:var(--vscode-textLink-foreground);">ROI Stats</div>' +
+        '<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-family:monospace;">' +
+        '<span style="color:var(--vscode-descriptionForeground);">Mean:</span><span>' + stats.mean.toFixed(4) + '</span>' +
+        '<span style="color:var(--vscode-descriptionForeground);">Std:</span><span>' + stats.std.toFixed(4) + '</span>' +
+        '<span style="color:var(--vscode-descriptionForeground);">Min:</span><span>' + stats.min.toFixed(4) + '</span>' +
+        '<span style="color:var(--vscode-descriptionForeground);">Max:</span><span>' + stats.max.toFixed(4) + '</span>' +
+        '<span style="color:var(--vscode-descriptionForeground);">Count:</span><span>' + stats.count + '</span>' +
+        '</div>';
+}
+
+function initROIEvents() {
+    var canvas = document.getElementById('imageCanvas');
+    if (!canvas) return;
+
+    canvas.addEventListener('mousedown', function(e) {
+        if (!state.roiState.active) return;
+        if (e.button !== 0) return;
+        e.preventDefault();
+        var rect = canvas.getBoundingClientRect();
+        var scaleX = (canvasZoomState.naturalWidth || canvas.width) / rect.width;
+        var scaleY = (canvasZoomState.naturalHeight || canvas.height) / rect.height;
+        state.roiState.startX = Math.round((e.clientX - rect.left) * scaleX);
+        state.roiState.startY = Math.round((e.clientY - rect.top) * scaleY);
+        state.roiState.endX = state.roiState.startX;
+        state.roiState.endY = state.roiState.startY;
+        state.roiState.dragging = true;
+        removeROIOverlay();
+    });
+
+    canvas.addEventListener('mousemove', function(e) {
+        if (!state.roiState.dragging) return;
+        var rect = canvas.getBoundingClientRect();
+        var scaleX = (canvasZoomState.naturalWidth || canvas.width) / rect.width;
+        var scaleY = (canvasZoomState.naturalHeight || canvas.height) / rect.height;
+        state.roiState.endX = Math.max(0, Math.min(Math.round((e.clientX - rect.left) * scaleX), canvasZoomState.naturalWidth - 1));
+        state.roiState.endY = Math.max(0, Math.min(Math.round((e.clientY - rect.top) * scaleY), canvasZoomState.naturalHeight - 1));
+        renderROIOverlay();
+    });
+
+    var mouseUpHandler = function() {
+        if (!state.roiState.dragging) return;
+        state.roiState.dragging = false;
+        var roi = state.roiState;
+        if (Math.abs(roi.endX - roi.startX) < 2 || Math.abs(roi.endY - roi.startY) < 2) {
+            removeROIOverlay();
+            return;
+        }
+        var currentData = pendingCanvasData;
+        if (!currentData) return;
+        var stats = computeROIStats(currentData, roi.startX, roi.startY, roi.endX, roi.endY);
+        if (stats) {
+            showROIStats(stats);
+        }
+    };
+
+    canvas.addEventListener('mouseup', mouseUpHandler);
+    document.addEventListener('mouseup', mouseUpHandler);
+}
+
+var RENDER_WORKER_CODE = [
+    'self.onmessage = function(e) {',
+    '    var d = e.data;',
+    '    var data = d.data;',
+    '    var width = d.width;',
+    '    var height = d.height;',
+    '    var keyPoints = d.keyPoints;',
+    '    var windowLevel = d.windowLevel;',
+    '    var windowWidth = d.windowWidth;',
+    '    var min = d.min;',
+    '    var max = d.max;',
+    '    var lut = new Array(256);',
+    '    for (var i = 0; i < 256; i++) {',
+    '        var t = i / 255;',
+    '        var lower = keyPoints[0], upper = keyPoints[keyPoints.length - 1];',
+    '        for (var j = 0; j < keyPoints.length - 1; j++) {',
+    '            if (t >= keyPoints[j][0] && t <= keyPoints[j + 1][0]) {',
+    '                lower = keyPoints[j];',
+    '                upper = keyPoints[j + 1];',
+    '                break;',
+    '            }',
+    '        }',
+    '        var range = upper[0] - lower[0] || 1;',
+    '        var f = (t - lower[0]) / range;',
+    '        lut[i] = [',
+    '            Math.round(lower[1] + (upper[1] - lower[1]) * f),',
+    '            Math.round(lower[2] + (upper[2] - lower[2]) * f),',
+    '            Math.round(lower[3] + (upper[3] - lower[3]) * f)',
+    '        ];',
+    '    }',
+    '    var range = max - min || 1;',
+    '    var windowCenter = min + range * windowLevel;',
+    '    var windowHalf = range * windowWidth * 0.5;',
+    '    var windowMin = windowCenter - windowHalf;',
+    '    var windowMax = windowCenter + windowHalf;',
+    '    var windowRange = windowMax - windowMin || 1;',
+    '    var buf = new ArrayBuffer(width * height * 4);',
+    '    var pixels = new Uint8ClampedArray(buf);',
+    '    for (var y = 0; y < height; y++) {',
+    '        for (var x = 0; x < width; x++) {',
+    '            var val = data[y][x];',
+    '            var norm = val !== null && val !== undefined ? (val - windowMin) / windowRange : 0;',
+    '            norm = Math.max(0, Math.min(1, norm));',
+    '            var idx = Math.min(255, Math.max(0, Math.round(norm * 255)));',
+    '            var rgb = lut[idx];',
+    '            var pidx = (y * width + x) * 4;',
+    '            pixels[pidx] = rgb[0];',
+    '            pixels[pidx + 1] = rgb[1];',
+    '            pixels[pidx + 2] = rgb[2];',
+    '            pixels[pidx + 3] = 255;',
+    '        }',
+    '    }',
+    '    self.postMessage({pixels: pixels, width: width, height: height}, [buf]);',
+    '};'
+].join('\\n');
+
+var renderWorkerInstance = null;
+
+function createRenderWorker() {
+    try {
+        var blob = new Blob([RENDER_WORKER_CODE], { type: 'application/javascript' });
+        var url = URL.createObjectURL(blob);
+        var worker = new Worker(url);
+        URL.revokeObjectURL(url);
+        worker.onmessage = function(e) {
+            var result = e.data;
+            var canvas = document.getElementById('imageCanvas');
+            if (!canvas) return;
+            var ctx = canvas.getContext('2d');
+            var imageData = new ImageData(new Uint8ClampedArray(result.pixels), result.width, result.height);
+            ctx.putImageData(imageData, 0, 0);
+            var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
+            var min = Infinity, max = -Infinity;
+            var currentData = pendingCanvasData;
+            if (currentData) {
+                for (var y = 0; y < currentData.length; y++) {
+                    for (var x = 0; x < currentData[y].length; x++) {
+                        var v = currentData[y][x];
+                        if (v !== null && v !== undefined) {
+                            if (v < min) min = v;
+                            if (v > max) max = v;
+                        }
+                    }
+                }
+            }
+            renderColorbar(colormap, min === Infinity ? 0 : min, max === -Infinity ? 1 : max);
+        };
+        worker.onerror = function() {
+            renderWorkerInstance = null;
+        };
+        return worker;
+    } catch(e) {
+        return null;
+    }
+}
+
+function renderImageToCanvasFallback(data) {
     if (!state.dirty) return;
     state.dirty = false;
 
@@ -820,6 +1082,105 @@ function renderImageToCanvas(data) {
             renderColorbar(colormap, min, max);
         });
     }
+}
+
+function renderImageToCanvas(data) {
+    if (!state.dirty) return;
+    state.dirty = false;
+
+    var canvas = document.getElementById('imageCanvas');
+    if (!canvas || !data) return;
+
+    var height = data.length;
+    var width = data[0] ? data[0].length : 0;
+    if (width === 0 || height === 0) return;
+
+    var totalElements = height * width;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    canvasZoomState.naturalWidth = width;
+    canvasZoomState.naturalHeight = height;
+
+    var sizeInfo = computeCanvasDisplaySize(width, height);
+    canvasZoomState.minScale = sizeInfo.width / width;
+
+    if (state.canvasScale !== null) {
+        canvasZoomState.scale = state.canvasScale;
+    } else {
+        canvasZoomState.scale = canvasZoomState.minScale;
+    }
+
+    canvas.style.width = Math.round(width * canvasZoomState.scale) + 'px';
+    canvas.style.height = Math.round(height * canvasZoomState.scale) + 'px';
+
+    var dimEl = document.getElementById('canvasDimensions');
+    if (dimEl) {
+        dimEl.textContent = width + ' x ' + height + ' px';
+    }
+
+    updateCanvasZoomDisplay();
+
+    if (totalElements > 500000) {
+        var min = Infinity, max = -Infinity;
+        for (var y = 0; y < height; y++) {
+            for (var x = 0; x < width; x++) {
+                var val = data[y][x];
+                if (val !== null && val !== undefined) {
+                    if (val < min) min = val;
+                    if (val > max) max = val;
+                }
+            }
+        }
+
+        var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
+        var keyPoints = null;
+        if (typeof colormap === 'function') {
+            for (var cmapName in COLORMAPS) {
+                if (COLORMAPS[cmapName] === colormap) {
+                    var cmapDefs = {
+                        viridis: [[0.0,68,1,84],[0.07,72,20,103],[0.13,71,33,115],[0.2,65,53,130],[0.27,59,82,139],[0.33,52,96,141],[0.4,44,113,142],[0.47,37,130,142],[0.53,33,145,140],[0.6,35,158,134],[0.67,52,179,123],[0.73,78,195,108],[0.8,114,208,88],[0.87,155,217,64],[0.93,200,225,47],[1.0,253,231,37]],
+                        inferno: [[0.0,0,0,4],[0.07,10,5,30],[0.13,25,10,60],[0.2,49,18,84],[0.27,74,12,107],[0.33,100,20,115],[0.4,130,34,110],[0.47,159,50,96],[0.53,186,67,79],[0.6,210,85,60],[0.67,230,108,42],[0.73,245,133,24],[0.8,250,162,17],[0.87,248,192,30],[0.93,245,225,70],[1.0,252,255,164]],
+                        plasma: [[0.0,13,8,135],[0.07,34,4,148],[0.13,60,3,158],[0.2,88,12,162],[0.27,116,25,160],[0.33,142,38,152],[0.4,166,52,141],[0.47,188,66,126],[0.53,208,82,108],[0.6,225,100,88],[0.67,238,122,70],[0.73,247,147,54],[0.8,251,174,42],[0.87,250,204,35],[0.93,244,230,32],[1.0,240,249,33]],
+                        hot: [[0.0,0,0,0],[0.07,32,0,0],[0.13,64,0,0],[0.2,96,0,0],[0.27,128,0,0],[0.33,160,0,0],[0.4,192,0,0],[0.47,224,0,0],[0.53,255,0,0],[0.6,255,32,0],[0.67,255,64,0],[0.73,255,96,0],[0.8,255,128,0],[0.87,255,160,0],[0.93,255,192,0],[1.0,255,255,255]],
+                        jet: [[0.0,0,0,128],[0.07,0,0,255],[0.13,0,64,255],[0.2,0,128,255],[0.27,0,192,255],[0.33,0,255,255],[0.4,64,255,192],[0.47,128,255,128],[0.53,192,255,64],[0.6,255,255,0],[0.67,255,192,0],[0.73,255,128,0],[0.8,255,64,0],[0.87,255,0,0],[0.93,192,0,0],[1.0,128,0,0]],
+                        turbo: [[0.0,48,18,59],[0.07,64,37,105],[0.13,80,60,140],[0.2,96,85,168],[0.27,112,110,190],[0.33,128,135,206],[0.4,148,160,216],[0.47,172,185,220],[0.53,196,208,216],[0.6,220,228,200],[0.67,232,236,164],[0.73,236,228,116],[0.8,232,208,72],[0.87,220,176,40],[0.93,200,136,20],[1.0,144,78,20]],
+                        coolwarm: [[0.0,59,76,192],[0.07,80,100,200],[0.13,100,124,208],[0.2,120,148,216],[0.27,140,172,224],[0.33,160,196,232],[0.4,180,216,236],[0.47,200,228,236],[0.53,236,228,216],[0.6,236,208,180],[0.67,232,184,140],[0.73,224,156,100],[0.8,216,128,64],[0.87,208,100,32],[0.93,200,72,12],[1.0,180,4,38]],
+                        rdbu: [[0.0,103,0,31],[0.07,140,20,48],[0.13,176,44,68],[0.2,208,72,92],[0.27,232,104,120],[0.33,248,140,156],[0.4,252,180,192],[0.47,252,216,224],[0.53,224,236,240],[0.6,180,224,232],[0.67,132,200,216],[0.73,88,172,196],[0.8,48,140,172],[0.87,20,104,144],[0.93,4,68,112],[1.0,5,48,97]]
+                    };
+                    keyPoints = cmapDefs[cmapName] || null;
+                    break;
+                }
+            }
+        }
+
+        if (keyPoints) {
+            if (!renderWorkerInstance) {
+                renderWorkerInstance = createRenderWorker();
+            }
+            if (renderWorkerInstance) {
+                renderWorkerInstance.postMessage({
+                    data: data,
+                    width: width,
+                    height: height,
+                    keyPoints: keyPoints,
+                    windowLevel: state.windowLevel,
+                    windowWidth: state.windowWidth,
+                    min: min,
+                    max: max
+                });
+                return;
+            }
+        }
+
+        state.dirty = true;
+        renderImageToCanvasFallback(data);
+        return;
+    }
+
+    state.dirty = true;
+    renderImageToCanvasFallback(data);
 }
 
 function renderColorbar(colormap, min, max) {
@@ -1753,6 +2114,10 @@ function render2DArray(name, value) {
             '<button class="toolbar-btn" id="flipH" title="Flip horizontal" aria-label="Flip horizontal">⇄</button>' +
             '<button class="toolbar-btn" id="flipV" title="Flip vertical" aria-label="Flip vertical">⇅</button>' +
             '</div>' +
+            '<div class="toolbar-divider"></div>' +
+            '<div class="toolbar-group">' +
+            '<button class="toolbar-btn' + (state.roiState.active ? ' active' : '') + '" id="roiBtn" title="ROI Selection" aria-label="ROI Selection">⬚</button>' +
+            '</div>' +
             '</div>' +
             '<div class="image-viewer">' +
             '<canvas id="imageCanvas" class="image-canvas" role="img" aria-label="Matrix visualization"></canvas>' +
@@ -1870,6 +2235,10 @@ function renderNDArray(name, value) {
             '<button class="toolbar-btn" id="rotateRight" title="Rotate right (↻)">↻</button>' +
             '<button class="toolbar-btn" id="flipH" title="Flip horizontal (⇄)">⇄</button>' +
             '<button class="toolbar-btn" id="flipV" title="Flip vertical (⇅)">⇅</button>' +
+            '</div>' +
+            '<div class="toolbar-divider"></div>' +
+            '<div class="toolbar-group">' +
+            '<button class="toolbar-btn' + (state.roiState.active ? ' active' : '') + '" id="roiBtn" title="ROI Selection" aria-label="ROI Selection">⬚</button>' +
             '</div>' +
             '</div>' +
             '<div class="image-viewer">' +
@@ -2037,6 +2406,9 @@ function initPreviewWidgets() {
             if (sliceDataForInit && sliceDataForInit.length > 200) {
                 setTimeout(function() { initVirtualTable3D(); }, 50);
             }
+        }
+        if (value.shape.length >= 2 && state.currentDisplayMode === 'image') {
+            setTimeout(function() { initROIEvents(); }, 50);
         }
     }
 }
@@ -2424,6 +2796,8 @@ document.addEventListener('click', function(e) {
         flipCanvas('horizontal');
     } else if (target.id === 'flipV') {
         flipCanvas('vertical');
+    } else if (target.id === 'roiBtn') {
+        toggleROI();
     }
 });
 
@@ -2547,6 +2921,16 @@ document.addEventListener('keydown', function(e) {
             var select = document.getElementById('colormapSelect');
             if (select) select.value = nextCmap;
             handled = true;
+            break;
+        case 'Escape':
+            if (state.roiState.active) {
+                state.roiState.active = false;
+                state.roiState.dragging = false;
+                removeROIOverlay();
+                var roiBtn = document.getElementById('roiBtn');
+                if (roiBtn) roiBtn.classList.remove('active');
+                handled = true;
+            }
             break;
     }
     if (handled) {
