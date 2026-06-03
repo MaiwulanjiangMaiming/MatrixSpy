@@ -1,0 +1,22 @@
+{
+  "command.matrixspy.openFile.title": "Open MAT File",
+  "command.matrixspy.exportCSV.title": "Export to CSV",
+  "command.matrixspy.exportJSON.title": "Export to JSON",
+  "command.matrixspy.exportNPY.title": "Export to NumPy (NPY)",
+  "command.matrixspy.exportPNG.title": "Export to PNG Image",
+  "command.matrixspy.exportHDF5.title": "Export to HDF5",
+  "command.matrixspy.exportXLSX.title": "Export to Excel (XLSX)",
+  "command.matrixspy.generateCode.title": "Generate Python Code",
+  "command.matrixspy.refreshVariables.title": "Refresh Variables",
+  "command.matrixspy.installDeps.title": "Install Python Dependencies",
+  "command.matrixspy.testEnvironment.title": "Test Python Environment",
+  "command.matrixspy.showSetupWizard.title": "Show Setup Wizard",
+  "command.matrixspy.showWelcome.title": "Show Welcome Page",
+  "command.matrixspy.resetWelcome.title": "Reset Welcome State",
+  "command.matrixspy.compareFiles.title": "Compare with...",
+  "configuration.matrixspy.pythonPath.description": "Path to Python executable",
+  "configuration.matrixspy.maxDataSize.description": "Maximum data size to load (number of elements)",
+  "configuration.matrixspy.enableImage.description": "Enable image mat data-specific features",
+  "configuration.matrixspy.customColormaps.description": "Custom colormaps defined as key-point arrays. Each colormap is an array of [position, r, g, b] tuples where position is 0.0-1.0 and r,g,b are 0-255. Example: {\"myCmap\": [[0, 0, 0, 0], [0.5, 255, 0, 0], [1.0, 255, 255, 255]]}",
+  "configuration.matrixspy.enableTelemetry.description": "Enable anonymous usage telemetry to help improve MatrixSpy"
+}

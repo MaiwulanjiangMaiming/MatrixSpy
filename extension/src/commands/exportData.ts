@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
 import * as zlib from 'zlib';
+import * as nls from 'vscode-nls';
 import { getFileDataCache, getPythonBridge } from '../extension';
 import { MatFileData, MatVariable } from '../types';
+
+const localize = nls.loadMessageBundle();
 
 function getActiveMatFilePath(): string | null {
     const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
@@ -31,7 +34,7 @@ function getActiveFileData(): { filePath: string; data: MatFileData } | null {
 export async function exportCSVCommand() {
     const activeFile = getActiveFileData();
     if (!activeFile) {
-        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
+        vscode.window.showErrorMessage(localize('noActiveFile', 'No active MAT file. Please open a .mat file first.'));
         return;
     }
 
@@ -40,7 +43,7 @@ export async function exportCSVCommand() {
     try {
         const variables = Object.keys(data);
         if (variables.length === 0) {
-            vscode.window.showWarningMessage('No variables found in the MAT file.');
+            vscode.window.showWarningMessage(localize('noVariables', 'No variables found in the MAT file.'));
             return;
         }
 
@@ -81,7 +84,7 @@ export async function exportCSVCommand() {
 export async function exportJSONCommand() {
     const activeFile = getActiveFileData();
     if (!activeFile) {
-        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
+        vscode.window.showErrorMessage(localize('noActiveFile', 'No active MAT file. Please open a .mat file first.'));
         return;
     }
 
@@ -110,7 +113,7 @@ export async function exportJSONCommand() {
 export async function exportNPYCommand() {
     const activeFile = getActiveFileData();
     if (!activeFile) {
-        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
+        vscode.window.showErrorMessage(localize('noActiveFile', 'No active MAT file. Please open a .mat file first.'));
         return;
     }
 
@@ -119,7 +122,7 @@ export async function exportNPYCommand() {
     try {
         const variables = Object.keys(data);
         if (variables.length === 0) {
-            vscode.window.showWarningMessage('No variables found in the MAT file.');
+            vscode.window.showWarningMessage(localize('noVariables', 'No variables found in the MAT file.'));
             return;
         }
 
@@ -160,7 +163,7 @@ export async function exportNPYCommand() {
 export async function exportPNGCommand() {
     const activeFile = getActiveFileData();
     if (!activeFile) {
-        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
+        vscode.window.showErrorMessage(localize('noActiveFile', 'No active MAT file. Please open a .mat file first.'));
         return;
     }
 
@@ -169,7 +172,7 @@ export async function exportPNGCommand() {
     try {
         const variables = Object.keys(data);
         if (variables.length === 0) {
-            vscode.window.showWarningMessage('No variables found in the MAT file.');
+            vscode.window.showWarningMessage(localize('noVariables', 'No variables found in the MAT file.'));
             return;
         }
 
@@ -409,19 +412,19 @@ function createChunk(type: string, data: Buffer): Buffer {
 export async function exportHDF5Command() {
     const activeFile = getActiveMatFilePath();
     if (!activeFile) {
-        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
+        vscode.window.showErrorMessage(localize('noActiveFile', 'No active MAT file. Please open a .mat file first.'));
         return;
     }
 
     const bridge = getPythonBridge();
     if (!bridge) {
-        vscode.window.showErrorMessage('Python bridge not available. Please reload the window.');
+        vscode.window.showErrorMessage(localize('pythonBridgeUnavailable', 'Python bridge not available. Please reload the window.'));
         return;
     }
 
     const activeFileData = getActiveFileData();
     if (!activeFileData) {
-        vscode.window.showErrorMessage('No file data available.');
+        vscode.window.showErrorMessage(localize('noFileData', 'No file data available.'));
         return;
     }
 
@@ -430,7 +433,7 @@ export async function exportHDF5Command() {
     try {
         const variables = Object.keys(data);
         if (variables.length === 0) {
-            vscode.window.showWarningMessage('No variables found in the MAT file.');
+            vscode.window.showWarningMessage(localize('noVariables', 'No variables found in the MAT file.'));
             return;
         }
 
@@ -473,19 +476,19 @@ export async function exportHDF5Command() {
 export async function exportXLSXCommand() {
     const activeFile = getActiveMatFilePath();
     if (!activeFile) {
-        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
+        vscode.window.showErrorMessage(localize('noActiveFile', 'No active MAT file. Please open a .mat file first.'));
         return;
     }
 
     const bridge = getPythonBridge();
     if (!bridge) {
-        vscode.window.showErrorMessage('Python bridge not available. Please reload the window.');
+        vscode.window.showErrorMessage(localize('pythonBridgeUnavailable', 'Python bridge not available. Please reload the window.'));
         return;
     }
 
     const activeFileData = getActiveFileData();
     if (!activeFileData) {
-        vscode.window.showErrorMessage('No file data available.');
+        vscode.window.showErrorMessage(localize('noFileData', 'No file data available.'));
         return;
     }
 
@@ -494,7 +497,7 @@ export async function exportXLSXCommand() {
     try {
         const variables = Object.keys(data);
         if (variables.length === 0) {
-            vscode.window.showWarningMessage('No variables found in the MAT file.');
+            vscode.window.showWarningMessage(localize('noVariables', 'No variables found in the MAT file.'));
             return;
         }
 

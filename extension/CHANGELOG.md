@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.0] - 2026-06-03
+
+### Added
+
+- **MAT File Diff/Compare** — new `matrixspy.compareFiles` command (right-click a .mat file → "Compare with...") to compare two .mat files side by side. Shows variable-level additions, deletions, modifications, and unchanged entries. For modified numeric arrays, computes the difference matrix (second − first) and renders it with an RdBu diverging colormap. Diff statistics (min, max, mean, std, abs mean) are displayed alongside the visual diff.
+- **i18n Internationalization** — added multi-language support using `vscode-nls`. All command titles and configuration descriptions in `package.json` now use `%key%` references resolved via `package.nls.json` (English) and `package.nls.zh-cn.json` (Chinese). User-facing messages in `extension.ts`, `exportData.ts`, and `CustomEditorProvider.ts` are localized through `vscode-nls` message bundles.
+
 ## [1.4.2] - 2026-06-03
 
 ### Added

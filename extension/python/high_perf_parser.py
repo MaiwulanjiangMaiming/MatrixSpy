@@ -688,6 +688,188 @@ class HighPerfMatParser:
         except Exception as e:
             return {'min': None, 'max': None, 'mean': None, 'std': None, 'error': str(e)}
 
+    def compare_files(self, path1: str, path2: str) -> Dict[str, Any]:
+        try:
+            import os
+            if not os.path.isfile(path1):
+                raise MatParseError('FILE_NOT_FOUND', f'File not found: {path1}')
+            if not os.path.isfile(path2):
+                raise MatParseError('FILE_NOT_FOUND', f'File not found: {path2}')
+
+            data1 = self._load_variable_info(path1)
+            data2 = self._load_variable_info(path2)
+
+            names1 = set(data1.keys())
+            names2 = set(data2.keys())
+
+            deleted = sorted(names1 - names2)
+            added = sorted(names2 - names1)
+            common = sorted(names1 & names2)
+
+            modified: list = []
+            unchanged: list = []
+
+            for name in common:
+                v1 = data1[name]
+                v2 = data2[name]
+                t1 = v1.get('_type', '')
+                t2 = v2.get('_type', '')
+                if t1 != t2:
+                    modified.append(name)
+                    continue
+                if t1 == 'ndarray':
+                    s1 = v1.get('shape', [])
+                    s2 = v2.get('shape', [])
+                    d1 = v1.get('dtype', '')
+                    d2 = v2.get('dtype', '')
+                    if s1 != s2 or d1 != d2:
+                        modified.append(name)
+                        continue
+                    arr1 = v1.get('_raw_array')
+                    arr2 = v2.get('_raw_array')
+                    if arr1 is not None and arr2 is not None:
+                        if np.array_equal(arr1, arr2):
+                            unchanged.append(name)
+                        else:
+                            modified.append(name)
+                    else:
+                        modified.append(name)
+                else:
+                    modified.append(name)
+
+            diff_details: Dict[str, Any] = {}
+            for name in modified:
+                v1 = data1.get(name, {})
+                v2 = data2.get(name, {})
+                t1 = v1.get('_type', '')
+                t2 = v2.get('_type', '')
+                if t1 == 'ndarray' and t2 == 'ndarray':
+                    arr1 = v1.get('_raw_array')
+                    arr2 = v2.get('_raw_array')
+                    if arr1 is not None and arr2 is not None and arr1.shape == arr2.shape:
+                        diff_arr = arr2.astype(np.float64) - arr1.astype(np.float64)
+                        diff_details[name] = {
+                            'shape': list(arr1.shape),
+                            'dtype1': v1.get('dtype', ''),
+                            'dtype2': v2.get('dtype', ''),
+                            'diff_min': self._safe_float(np.nanmin(diff_arr)),
+                            'diff_max': self._safe_float(np.nanmax(diff_arr)),
+                            'diff_mean': self._safe_float(np.nanmean(diff_arr)),
+                            'diff_std': self._safe_float(np.nanstd(diff_arr)),
+                            'diff_abs_mean': self._safe_float(np.nanmean(np.abs(diff_arr))),
+                            'diff_encoded_data': None,
+                            'diff_shape': list(diff_arr.shape)
+                        }
+                        if diff_arr.size <= self.max_preview_size:
+                            raw_bytes = np.ascontiguousarray(diff_arr, dtype=np.float32).tobytes()
+                            diff_details[name]['diff_encoded_data'] = base64.b64encode(raw_bytes).decode('ascii')
+                            diff_details[name]['diff_dtype'] = 'float32'
+                    else:
+                        diff_details[name] = {
+                            'shape1': v1.get('shape', []),
+                            'shape2': v2.get('shape', []),
+                            'dtype1': v1.get('dtype', ''),
+                            'dtype2': v2.get('dtype', ''),
+                            'note': 'Shape or dtype mismatch, diff not computed'
+                        }
+                else:
+                    diff_details[name] = {
+                        'type1': t1,
+                        'type2': t2,
+                        'note': 'Type mismatch, diff not computed'
+                    }
+
+            return {
+                'success': True,
+                'path1': path1,
+                'path2': path2,
+                'deleted': deleted,
+                'added': added,
+                'modified': modified,
+                'unchanged': unchanged,
+                'diff_details': diff_details
+            }
+        except MatParseError as e:
+            return {
+                'success': False,
+                'error': e.message,
+                'code': e.code
+            }
+        except Exception as e:
+            import traceback
+            print(f"Error in compare_files: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def _load_variable_info(self, file_path: str) -> Dict[str, Any]:
+        version = self._detect_version(file_path)
+        result: Dict[str, Any] = {}
+
+        if version == 'v7.3':
+            try:
+                import mat73
+                data = mat73.loadmat(file_path, use_attrdict=True)
+                for key in data:
+                    if key.startswith('#') or key.startswith('__'):
+                        continue
+                    try:
+                        val = data[key]
+                        if isinstance(val, np.ndarray):
+                            result[key] = {
+                                '_type': 'ndarray',
+                                'shape': list(val.shape),
+                                'dtype': str(val.dtype),
+                                'size': int(val.size),
+                                '_raw_array': val
+                            }
+                        else:
+                            result[key] = self._process_value(val, is_root=True)
+                    except Exception as e:
+                        result[key] = {'_type': 'error', 'error': str(e)}
+            except ImportError:
+                with h5py.File(file_path, 'r') as f:
+                    for key in f.keys():
+                        if key.startswith('#'):
+                            continue
+                        try:
+                            item = f[key]
+                            if isinstance(item, h5py.Dataset):
+                                arr = item[()]
+                                result[key] = {
+                                    '_type': 'ndarray',
+                                    'shape': list(arr.shape),
+                                    'dtype': str(arr.dtype),
+                                    'size': int(arr.size),
+                                    '_raw_array': arr
+                                }
+                            elif isinstance(item, h5py.Group):
+                                result[key] = self._process_hdf5_group(item)
+                        except Exception as e:
+                            result[key] = {'_type': 'error', 'error': str(e)}
+        else:
+            data = scipy.io.loadmat(file_path, simplify_cells=False,
+                                   struct_as_record=False, squeeze_me=True)
+            for key, value in data.items():
+                if not key.startswith('__') and not key.startswith('#'):
+                    try:
+                        if isinstance(value, np.ndarray):
+                            result[key] = {
+                                '_type': 'ndarray',
+                                'shape': list(value.shape),
+                                'dtype': str(value.dtype),
+                                'size': int(value.size),
+                                '_raw_array': value
+                            }
+                        else:
+                            result[key] = self._process_value(value, is_root=True)
+                    except Exception as e:
+                        result[key] = {'_type': 'error', 'error': str(e)}
+
+        return result
+
     def _detect_version(self, file_path: str) -> str:
         with open(file_path, 'rb') as f:
             header = f.read(128)
@@ -779,6 +961,17 @@ def daemon_main() -> None:
                 _respond(result)
             except Exception as e:
                 _respond({'error': str(e), 'code': 'EXPORT_ERROR'})
+        elif action == 'compare_files':
+            try:
+                path1 = request.get('path1', '')
+                path2 = request.get('path2', '')
+                if not path1 or not path2:
+                    _respond({'success': False, 'error': 'Missing required fields: path1, path2', 'code': 'VALIDATION_ERROR'})
+                    continue
+                result = parser.compare_files(path1, path2)
+                _respond(result)
+            except Exception as e:
+                _respond({'success': False, 'error': str(e), 'code': 'COMPARE_ERROR'})
         elif action == 'export_xlsx':
             try:
                 src_path = request.get('path', '')

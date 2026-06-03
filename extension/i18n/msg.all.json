@@ -1,0 +1,17 @@
+{
+  "envNotReady": "MatrixSpy: Environment is not fully ready. Run setup now?",
+  "openSetupWizard": "Open Setup Wizard",
+  "testEnvironment": "Test Environment",
+  "dismiss": "Dismiss",
+  "pythonNotFound": "MatrixSpy: Python not found. Please install Python 3.8+ and configure the pythonPath setting.",
+  "configureSettings": "Configure Settings",
+  "missingPackages": "MatrixSpy: Missing Python packages: {0}. Install now?",
+  "installDeps": "Install Dependencies",
+  "refreshFailed": "Refresh failed: {0}",
+  "noActiveFile": "No active MAT file to refresh.",
+  "welcomeReset": "MatrixSpy: Welcome page state reset. Restart VS Code to see the welcome page.",
+  "noActiveFileExport": "No active MAT file. Please open a .mat file first.",
+  "noVariables": "No variables found in the MAT file.",
+  "pythonBridgeUnavailable": "Python bridge not available. Please reload the window.",
+  "noFileData": "No file data available."
+}

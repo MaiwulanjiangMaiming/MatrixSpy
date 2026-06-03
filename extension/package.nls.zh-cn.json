@@ -1,0 +1,22 @@
+{
+  "command.matrixspy.openFile.title": "打开 MAT 文件",
+  "command.matrixspy.exportCSV.title": "导出为 CSV",
+  "command.matrixspy.exportJSON.title": "导出为 JSON",
+  "command.matrixspy.exportNPY.title": "导出为 NumPy (NPY)",
+  "command.matrixspy.exportPNG.title": "导出为 PNG 图片",
+  "command.matrixspy.exportHDF5.title": "导出为 HDF5",
+  "command.matrixspy.exportXLSX.title": "导出为 Excel (XLSX)",
+  "command.matrixspy.generateCode.title": "生成 Python 代码",
+  "command.matrixspy.refreshVariables.title": "刷新变量",
+  "command.matrixspy.installDeps.title": "安装 Python 依赖",
+  "command.matrixspy.testEnvironment.title": "测试 Python 环境",
+  "command.matrixspy.showSetupWizard.title": "显示安装向导",
+  "command.matrixspy.showWelcome.title": "显示欢迎页",
+  "command.matrixspy.resetWelcome.title": "重置欢迎页状态",
+  "command.matrixspy.compareFiles.title": "与...比较",
+  "configuration.matrixspy.pythonPath.description": "Python 可执行文件路径",
+  "configuration.matrixspy.maxDataSize.description": "最大加载数据大小（元素数量）",
+  "configuration.matrixspy.enableImage.description": "启用图像 MAT 数据专用功能",
+  "configuration.matrixspy.customColormaps.description": "自定义色图，以关键点数组定义。每个色图是 [position, r, g, b] 元组的数组，其中 position 为 0.0-1.0，r、g、b 为 0-255。示例：{\"myCmap\": [[0, 0, 0, 0], [0.5, 255, 0, 0], [1.0, 255, 255, 255]]}",
+  "configuration.matrixspy.enableTelemetry.description": "启用匿名使用遥测以帮助改进 MatrixSpy"
+}

@@ -5,10 +5,13 @@ Author: Maiwulanjiang Maiming
 */
 
 import * as vscode from 'vscode';
+import * as nls from 'vscode-nls';
 import { PythonBridge } from '../ipc/PythonBridge';
 import { updateTreeData, updateCurrentWebviewPanel, cacheFileData, updateStatusBar, sendTelemetry } from '../extension';
 import { getHtml } from '../webview/html';
 import type { WebviewToExtension, ExtensionToWebview } from '../types/messages';
+
+const localize = nls.loadMessageBundle();
 
 export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvider {
     private messageListenerDisposable: vscode.Disposable | null = null;

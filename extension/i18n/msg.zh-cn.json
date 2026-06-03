@@ -1,0 +1,17 @@
+{
+  "envNotReady": "MatrixSpy：环境未完全就绪。是否立即运行设置？",
+  "openSetupWizard": "打开安装向导",
+  "testEnvironment": "测试环境",
+  "dismiss": "忽略",
+  "pythonNotFound": "MatrixSpy：未找到 Python。请安装 Python 3.8+ 并配置 pythonPath 设置。",
+  "configureSettings": "配置设置",
+  "missingPackages": "MatrixSpy：缺少 Python 包：{0}。是否立即安装？",
+  "installDeps": "安装依赖",
+  "refreshFailed": "刷新失败：{0}",
+  "noActiveFile": "没有活动的 MAT 文件可刷新。",
+  "welcomeReset": "MatrixSpy：欢迎页状态已重置。重启 VS Code 以查看欢迎页。",
+  "noActiveFileExport": "没有活动的 MAT 文件。请先打开一个 .mat 文件。",
+  "noVariables": "MAT 文件中未找到变量。",
+  "pythonBridgeUnavailable": "Python 桥接不可用。请重新加载窗口。",
+  "noFileData": "没有可用的文件数据。"
+}

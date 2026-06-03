@@ -470,6 +470,49 @@ print(','.join(missing))`
         }
     }
 
+    async compareFiles(path1: string, path2: string): Promise<any> {
+        if (this.disposed) {
+            throw createError('PythonBridge has been disposed', ERROR_CODES.UNKNOWN, null, false);
+        }
+
+        if (!fs.existsSync(path1)) {
+            throw createError(`File not found: ${path1}`, ERROR_CODES.FILE_NOT_FOUND, null, false);
+        }
+
+        if (!fs.existsSync(path2)) {
+            throw createError(`File not found: ${path2}`, ERROR_CODES.FILE_NOT_FOUND, null, false);
+        }
+
+        try {
+            const result = await this.sendRequest({
+                action: 'compare_files',
+                path1,
+                path2
+            });
+
+            if (!result.success) {
+                throw createError(
+                    result.error || 'Failed to compare files',
+                    ERROR_CODES.UNKNOWN,
+                    result,
+                    false
+                );
+            }
+
+            return result;
+        } catch (err) {
+            if (err && typeof err === 'object' && 'code' in err) {
+                throw err;
+            }
+            throw createError(
+                `Failed to compare files: ${err instanceof Error ? err.message : String(err)}`,
+                ERROR_CODES.UNKNOWN,
+                null,
+                true
+            );
+        }
+    }
+
     async exportXlsx(filePath: string, variableName: string, destPath: string): Promise<any> {
         if (this.disposed) {
             throw createError('PythonBridge has been disposed', ERROR_CODES.UNKNOWN, null, false);

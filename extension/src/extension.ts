@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as nls from 'vscode-nls';
 import { MatFileEditorProvider } from './providers/CustomEditorProvider';
 import { MatVariableTreeDataProvider, setCurrentData, setCurrentWebviewPanel, showVariable } from './providers/MatVariableTreeDataProvider';
 import { PythonBridge, DependencyCheckResult } from './ipc/PythonBridge';
@@ -6,8 +7,11 @@ import { openFileCommand } from './commands/openFile';
 import { exportCSVCommand, exportJSONCommand, exportNPYCommand, exportPNGCommand, exportHDF5Command, exportXLSXCommand } from './commands/exportData';
 import { generateCodeCommand } from './commands/generateCode';
 import { installDepsCommand, testEnvironmentCommand } from './commands/walkthroughCommands';
+import { compareFilesCommand } from './commands/compareFiles';
 import { MatFileData } from './types';
 import { TelemetryReporter } from '@vscode/extension-telemetry';
+
+const localize = nls.loadMessageBundle();
 
 const TELEMETRY_KEY = 'matrixspy-telemetry';
 
@@ -62,15 +66,15 @@ async function checkAndShowWelcome(context: vscode.ExtensionContext): Promise<vo
 
     if (!depResult.allDependenciesMet) {
         const action = await vscode.window.showWarningMessage(
-            'MatrixSpy: Environment is not fully ready. Run setup now?',
-            'Open Setup Wizard',
-            'Test Environment',
-            'Dismiss'
+            localize('envNotReady', 'MatrixSpy: Environment is not fully ready. Run setup now?'),
+            localize('openSetupWizard', 'Open Setup Wizard'),
+            localize('testEnvironment', 'Test Environment'),
+            localize('dismiss', 'Dismiss')
         );
 
-        if (action === 'Open Setup Wizard') {
+        if (action === localize('openSetupWizard', 'Open Setup Wizard')) {
             await showSetupWizard(context, depResult, false);
-        } else if (action === 'Test Environment') {
+        } else if (action === localize('testEnvironment', 'Test Environment')) {
             const testResult = await testEnvironmentCommand();
             if (testResult.allDependenciesMet) {
                 await context.globalState.update(WELCOME_SHOWN_KEY, true);
@@ -222,29 +226,29 @@ async function showWelcomePage(context: vscode.ExtensionContext, depResult: Depe
 
     if (!depResult.pythonFound) {
         vscode.window.showWarningMessage(
-            'MatrixSpy: Python not found. Please install Python 3.8+ and configure the pythonPath setting.',
-            'Configure Settings',
-            'Test Environment',
-            'Dismiss'
+            localize('pythonNotFound', 'MatrixSpy: Python not found. Please install Python 3.8+ and configure the pythonPath setting.'),
+            localize('configureSettings', 'Configure Settings'),
+            localize('testEnvironment', 'Test Environment'),
+            localize('dismiss', 'Dismiss')
         ).then(selection => {
-            if (selection === 'Configure Settings') {
+            if (selection === localize('configureSettings', 'Configure Settings')) {
                 vscode.commands.executeCommand('workbench.action.openSettings', 'matrixspy.pythonPath');
-            } else if (selection === 'Test Environment') {
+            } else if (selection === localize('testEnvironment', 'Test Environment')) {
                 vscode.commands.executeCommand('matrixspy.testEnvironment');
             }
         });
     } else if (!depResult.allDependenciesMet) {
         const missing = depResult.missingPackages.join(', ');
         const action = await vscode.window.showWarningMessage(
-            `MatrixSpy: Missing Python packages: ${missing}. Install now?`,
-            'Install Dependencies',
-            'Test Environment',
-            'Dismiss'
+            localize('missingPackages', 'MatrixSpy: Missing Python packages: {0}. Install now?', missing),
+            localize('installDeps', 'Install Dependencies'),
+            localize('testEnvironment', 'Test Environment'),
+            localize('dismiss', 'Dismiss')
         );
 
-        if (action === 'Install Dependencies') {
+        if (action === localize('installDeps', 'Install Dependencies')) {
             await installDepsCommand();
-        } else if (action === 'Test Environment') {
+        } else if (action === localize('testEnvironment', 'Test Environment')) {
             await vscode.commands.executeCommand('matrixspy.testEnvironment');
         }
     } else {
@@ -300,11 +304,11 @@ function registerCommands(context: vscode.ExtensionContext): void {
                             }
                         }
                     } catch (error) {
-                        vscode.window.showErrorMessage(`Refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+                        vscode.window.showErrorMessage(localize('refreshFailed', 'Refresh failed: {0}', error instanceof Error ? error.message : String(error)));
                     }
                 }
             } else {
-                vscode.window.showInformationMessage('No active MAT file to refresh.');
+                vscode.window.showInformationMessage(localize('noActiveFile', 'No active MAT file to refresh.'));
             }
         }),
         vscode.commands.registerCommand('matrixspy.showVariable', (name: string, value: any) => {
@@ -331,8 +335,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }),
         vscode.commands.registerCommand('matrixspy.resetWelcome', async () => {
             await context.globalState.update(WELCOME_SHOWN_KEY, false);
-            vscode.window.showInformationMessage('MatrixSpy: Welcome page state reset. Restart VS Code to see the welcome page.');
-        })
+            vscode.window.showInformationMessage(localize('welcomeReset', 'MatrixSpy: Welcome page state reset. Restart VS Code to see the welcome page.'));
+        }),
+        vscode.commands.registerCommand('matrixspy.compareFiles', (uri?: vscode.Uri) => compareFilesCommand(uri))
     );
 }
 
