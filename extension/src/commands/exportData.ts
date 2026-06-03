@@ -469,3 +469,80 @@ export async function exportHDF5Command() {
         vscode.window.showErrorMessage(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
+
+export async function exportXLSXCommand() {
+    const activeFile = getActiveMatFilePath();
+    if (!activeFile) {
+        vscode.window.showErrorMessage('No active MAT file. Please open a .mat file first.');
+        return;
+    }
+
+    const bridge = getPythonBridge();
+    if (!bridge) {
+        vscode.window.showErrorMessage('Python bridge not available. Please reload the window.');
+        return;
+    }
+
+    const activeFileData = getActiveFileData();
+    if (!activeFileData) {
+        vscode.window.showErrorMessage('No file data available.');
+        return;
+    }
+
+    const { data } = activeFileData;
+
+    try {
+        const variables = Object.keys(data);
+        if (variables.length === 0) {
+            vscode.window.showWarningMessage('No variables found in the MAT file.');
+            return;
+        }
+
+        const selectedVar = await vscode.window.showQuickPick(variables, {
+            placeHolder: 'Select variable to export as Excel'
+        });
+
+        if (!selectedVar) {
+            return;
+        }
+
+        const saveUri = await vscode.window.showSaveDialog({
+            filters: {
+                'Excel Files': ['xlsx']
+            },
+            defaultUri: vscode.Uri.file(`${selectedVar}.xlsx`)
+        });
+
+        if (!saveUri) {
+            return;
+        }
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'MatrixSpy: Exporting Excel...',
+            cancellable: false
+        }, async () => {
+            const result = await bridge!.exportXlsx(activeFile, selectedVar, saveUri.fsPath);
+            if (result.success) {
+                vscode.window.showInformationMessage(`Exported ${selectedVar} to ${saveUri.fsPath}`);
+            } else {
+                const errMsg = result.error || 'Unknown error';
+                if (result.code === 'DEPENDENCY_MISSING') {
+                    const action = await vscode.window.showErrorMessage(
+                        `Export failed: ${errMsg}`,
+                        'Install openpyxl'
+                    );
+                    if (action === 'Install openpyxl') {
+                        const terminal = vscode.window.createTerminal('MatrixSpy: Install openpyxl');
+                        terminal.show();
+                        terminal.sendText('pip install openpyxl');
+                    }
+                } else {
+                    vscode.window.showErrorMessage(`Export failed: ${errMsg}`);
+                }
+            }
+        });
+    } catch (error) {
+        vscode.window.showErrorMessage(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}

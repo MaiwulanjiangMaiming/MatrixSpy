@@ -258,6 +258,84 @@ class HighPerfMatParser:
                 'error': str(e)
             }
 
+    def export_xlsx(self, src_path: str, variable_name: str, dest_path: str) -> Dict[str, Any]:
+        try:
+            try:
+                import openpyxl
+            except ImportError:
+                return {
+                    'success': False,
+                    'error': 'openpyxl is not installed. Install it with: pip install openpyxl',
+                    'code': 'DEPENDENCY_MISSING'
+                }
+
+            version = self._detect_version(src_path)
+            value = None
+
+            if version == 'v7.3':
+                try:
+                    import mat73
+                    data = mat73.loadmat(src_path, only_include=variable_name, use_attrdict=True)
+                    value = data.get(variable_name)
+                except ImportError:
+                    with h5py.File(src_path, 'r') as f:
+                        if variable_name not in f:
+                            raise ValueError(f"Variable '{variable_name}' not found")
+                        ds = f[variable_name]
+                        if isinstance(ds, h5py.Dataset):
+                            value = ds[()]
+                        else:
+                            raise ValueError(f"Variable '{variable_name}' is not a dataset")
+            else:
+                data = scipy.io.loadmat(src_path, variable_names=[variable_name],
+                                       simplify_cells=True, struct_as_record=False,
+                                       squeeze_me=True)
+                value = data.get(variable_name)
+
+            if value is None:
+                raise ValueError(f"Variable '{variable_name}' not found")
+
+            if not isinstance(value, np.ndarray):
+                value = np.array(value)
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = variable_name[:31]
+
+            if value.ndim == 1:
+                for i, v in enumerate(value):
+                    ws.cell(row=i + 1, column=1, value=float(v) if np.issubdtype(type(v), np.floating) else int(v) if np.issubdtype(type(v), np.integer) else str(v))
+            elif value.ndim == 2:
+                for i, row in enumerate(value):
+                    for j, v in enumerate(row):
+                        cell_val = float(v) if np.issubdtype(type(v), np.floating) else int(v) if np.issubdtype(type(v), np.integer) else str(v)
+                        ws.cell(row=i + 1, column=j + 1, value=cell_val)
+            else:
+                flat = value.flatten()
+                ws.cell(row=1, column=1, value=f"Flattened {value.shape} array")
+                for i, v in enumerate(flat[:1048575]):
+                    cell_val = float(v) if np.issubdtype(type(v), np.floating) else int(v) if np.issubdtype(type(v), np.integer) else str(v)
+                    ws.cell(row=i + 2, column=1, value=cell_val)
+
+            wb.save(dest_path)
+
+            return {
+                'success': True,
+                'variable_name': variable_name,
+                'dest_path': dest_path
+            }
+        except MatParseError as e:
+            return {
+                'success': False,
+                'error': e.message,
+                'code': e.code
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def _fill_none_from_hdf5(self, result: Dict[str, Any], h5file: h5py.File) -> None:
         for key in list(result.keys()):
             val = result[key]
@@ -698,6 +776,18 @@ def daemon_main() -> None:
                     _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'})
                     continue
                 result = parser.export_hdf5(src_path, variable, dest_path)
+                _respond(result)
+            except Exception as e:
+                _respond({'error': str(e), 'code': 'EXPORT_ERROR'})
+        elif action == 'export_xlsx':
+            try:
+                src_path = request.get('path', '')
+                variable = request.get('variable', '')
+                dest_path = request.get('dest_path', '')
+                if not src_path or not variable or not dest_path:
+                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'})
+                    continue
+                result = parser.export_xlsx(src_path, variable, dest_path)
                 _respond(result)
             except Exception as e:
                 _respond({'error': str(e), 'code': 'EXPORT_ERROR'})
