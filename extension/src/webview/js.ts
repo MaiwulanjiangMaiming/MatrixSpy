@@ -1543,9 +1543,71 @@ function render1DLineChart(value) {
         }
     }
 
-    var html = '<div class="line-chart-container" style="position:relative;">';
-    html += '<canvas id="lineChart1D" width="800" height="400" style="width:100%;max-width:800px;height:400px;cursor:crosshair;"></canvas>';
-    html += '<div id="lineChartTooltip" style="display:none;position:absolute;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:4px;padding:4px 8px;font-size:12px;font-family:monospace;pointer-events:none;z-index:10;white-space:nowrap;"></div>';
+    var minVal = Infinity, maxVal = -Infinity;
+    for (var mi = 0; mi < numericData.length; mi++) {
+        if (numericData[mi] < minVal) minVal = numericData[mi];
+        if (numericData[mi] > maxVal) maxVal = numericData[mi];
+    }
+    var valRange = maxVal - minVal || 1;
+    var valPadding = valRange * 0.05;
+    minVal -= valPadding;
+    maxVal += valPadding;
+    valRange = maxVal - minVal;
+
+    var svgW = 100;
+    var svgH = 50;
+    var padL = 8;
+    var padR = 2;
+    var padT = 4;
+    var padB = 8;
+    var plotW = svgW - padL - padR;
+    var plotH = svgH - padT - padB;
+
+    var points = '';
+    var step = Math.max(1, Math.floor(numericData.length / 500));
+    var sampledIndices = [];
+    for (var si = 0; si < numericData.length; si += step) {
+        sampledIndices.push(si);
+    }
+    if (sampledIndices[sampledIndices.length - 1] !== numericData.length - 1) {
+        sampledIndices.push(numericData.length - 1);
+    }
+
+    for (var pi = 0; pi < sampledIndices.length; pi++) {
+        var idx = sampledIndices[pi];
+        var px = padL + (idx / Math.max(1, numericData.length - 1)) * plotW;
+        var py = padT + plotH - ((numericData[idx] - minVal) / valRange) * plotH;
+        points += (pi === 0 ? 'M' : 'L') + px.toFixed(2) + ' ' + py.toFixed(2);
+    }
+
+    var areaPath = points + ' L' + padL + ' ' + (padT + plotH) + ' L' + (padL + plotW) + ' ' + (padT + plotH) + ' Z';
+
+    var numYTicks = 4;
+    var yTickLabels = '';
+    for (var yi = 0; yi <= numYTicks; yi++) {
+        var yy = padT + plotH - (yi / numYTicks) * plotH;
+        var tickVal = minVal + (yi / numYTicks) * valRange;
+        yTickLabels += '<text x="' + (padL - 1) + '" y="' + (yy + 1.2) + '" text-anchor="end" font-size="2.5" fill="var(--vscode-descriptionForeground)" font-family="monospace">' + tickVal.toFixed(2) + '</text>';
+        yTickLabels += '<line x1="' + padL + '" y1="' + yy + '" x2="' + (padL + plotW) + '" y2="' + yy + '" stroke="var(--vscode-panel-border)" stroke-width="0.15" stroke-dasharray="0.8,0.8" />';
+    }
+
+    var numXTicks = 5;
+    var xTickLabels = '';
+    for (var xi = 0; xi <= numXTicks; xi++) {
+        var xx = padL + (xi / numXTicks) * plotW;
+        var tickIdx = Math.round((xi / numXTicks) * (numericData.length - 1));
+        xTickLabels += '<text x="' + xx + '" y="' + (svgH - 1) + '" text-anchor="middle" font-size="2.5" fill="var(--vscode-descriptionForeground)" font-family="monospace">' + tickIdx + '</text>';
+    }
+
+    var html = '<div class="svg-chart-container">';
+    html += '<svg viewBox="0 0 ' + svgW + ' ' + svgH + '" preserveAspectRatio="xMidYMid meet" class="line-chart-svg" xmlns="http://www.w3.org/2000/svg">';
+    html += '<defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--vscode-textLink-foreground)" stop-opacity="0.25"/><stop offset="100%" stop-color="var(--vscode-textLink-foreground)" stop-opacity="0.02"/></linearGradient></defs>';
+    html += yTickLabels;
+    html += xTickLabels;
+    html += '<path d="' + areaPath + '" fill="url(#areaGrad)" />';
+    html += '<path d="' + points + '" fill="none" stroke="var(--vscode-textLink-foreground)" stroke-width="0.5" stroke-linejoin="round" stroke-linecap="round" />';
+    html += '</svg>';
+    html += '<div id="svgChartTooltip" class="svg-chart-tooltip" style="display:none;"></div>';
     html += '</div>';
 
     html += '<script id="lineChartData" type="application/json">' + JSON.stringify(numericData) + '<\\/script>';
@@ -1554,217 +1616,50 @@ function render1DLineChart(value) {
 }
 
 function initLineChart() {
-    var canvas = document.getElementById('lineChart1D');
-    if (!canvas) return;
-
     var dataEl = document.getElementById('lineChartData');
     if (!dataEl) return;
 
     var data = JSON.parse(dataEl.textContent);
-    var tooltip = document.getElementById('lineChartTooltip');
-    var container = canvas.parentElement;
+    var svg = document.querySelector('.line-chart-svg');
+    var tooltip = document.getElementById('svgChartTooltip');
+    if (!svg || !tooltip) return;
 
-    var padding = { top: 20, right: 30, bottom: 40, left: 60 };
-    var ctx = canvas.getContext('2d');
+    var svgW = 100;
+    var svgH = 50;
+    var padL = 8;
+    var padR = 2;
+    var padT = 4;
+    var padB = 8;
+    var plotW = svgW - padL - padR;
+    var plotH = svgH - padT - padB;
 
-    var zoomLevel = 1;
-    var panOffsetX = 0;
-    var isDragging = false;
-    var dragStartX = 0;
-    var dragStartPanX = 0;
+    svg.addEventListener('mousemove', function(e) {
+        var rect = svg.getBoundingClientRect();
+        var mx = (e.clientX - rect.left) / rect.width * svgW;
+        var my = (e.clientY - rect.top) / rect.height * svgH;
 
-    function getVisibleRange() {
-        var totalWidth = data.length;
-        var visibleWidth = totalWidth / zoomLevel;
-        var startIdx = Math.max(0, Math.round(panOffsetX));
-        var endIdx = Math.min(totalWidth, Math.round(panOffsetX + visibleWidth));
-        return { start: startIdx, end: endIdx, count: endIdx - startIdx };
-    }
-
-    function drawChart() {
-        var w = canvas.width;
-        var h = canvas.height;
-        ctx.clearRect(0, 0, w, h);
-
-        var range = getVisibleRange();
-        var visibleData = data.slice(range.start, range.end);
-        if (visibleData.length === 0) return;
-
-        var minVal = Infinity, maxVal = -Infinity;
-        for (var i = 0; i < visibleData.length; i++) {
-            if (visibleData[i] < minVal) minVal = visibleData[i];
-            if (visibleData[i] > maxVal) maxVal = visibleData[i];
-        }
-        var valRange = maxVal - minVal || 1;
-        var valPadding = valRange * 0.05;
-        minVal -= valPadding;
-        maxVal += valPadding;
-        valRange = maxVal - minVal;
-
-        var plotW = w - padding.left - padding.right;
-        var plotH = h - padding.top - padding.bottom;
-
-        var style = getComputedStyle(document.body);
-        var fgColor = style.getPropertyValue('--vscode-foreground').trim() || '#cccccc';
-        var mutedColor = style.getPropertyValue('--vscode-descriptionForeground').trim() || '#888888';
-        var accentColor = style.getPropertyValue('--vscode-textLink-foreground').trim() || '#3794ff';
-        var gridColor = style.getPropertyValue('--vscode-editorRuler-foreground').trim() || 'rgba(255,255,255,0.1)';
-
-        ctx.strokeStyle = gridColor;
-        ctx.lineWidth = 0.5;
-
-        var numYTicks = 6;
-        for (var ti = 0; ti <= numYTicks; ti++) {
-            var ty = padding.top + plotH - (ti / numYTicks) * plotH;
-            ctx.beginPath();
-            ctx.moveTo(padding.left, ty);
-            ctx.lineTo(w - padding.right, ty);
-            ctx.stroke();
-
-            var tickVal = minVal + (ti / numYTicks) * valRange;
-            ctx.fillStyle = mutedColor;
-            ctx.font = '10px monospace';
-            ctx.textAlign = 'right';
-            ctx.fillText(tickVal.toFixed(2), padding.left - 6, ty + 3);
-        }
-
-        var numXTicks = Math.min(10, visibleData.length);
-        for (var xi = 0; xi <= numXTicks; xi++) {
-            var tx = padding.left + (xi / numXTicks) * plotW;
-            ctx.beginPath();
-            ctx.moveTo(tx, padding.top);
-            ctx.lineTo(tx, h - padding.bottom);
-            ctx.stroke();
-
-            var tickIdx = range.start + Math.round((xi / numXTicks) * (range.count - 1));
-            ctx.fillStyle = mutedColor;
-            ctx.font = '10px monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText(tickIdx.toString(), tx, h - padding.bottom + 16);
-        }
-
-        ctx.strokeStyle = accentColor;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        for (var di = 0; di < visibleData.length; di++) {
-            var px = padding.left + (di / Math.max(1, visibleData.length - 1)) * plotW;
-            var py = padding.top + plotH - ((visibleData[di] - minVal) / valRange) * plotH;
-            if (di === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-        }
-        ctx.stroke();
-
-        ctx.fillStyle = mutedColor;
-        ctx.font = '11px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('Index', w / 2, h - 4);
-
-        ctx.save();
-        ctx.translate(12, h / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.fillText('Value', 0, 0);
-        ctx.restore();
-    }
-
-    drawChart();
-
-    canvas.addEventListener('wheel', function(e) {
-        e.preventDefault();
-        var rect = canvas.getBoundingClientRect();
-        var mouseX = e.clientX - rect.left;
-        var ratio = mouseX / rect.width;
-
-        var oldZoom = zoomLevel;
-        if (e.deltaY < 0) {
-            zoomLevel = Math.min(zoomLevel * 1.2, 100);
-        } else {
-            zoomLevel = Math.max(zoomLevel / 1.2, 1);
-        }
-
-        var visibleWidth = data.length / zoomLevel;
-        var oldVisibleWidth = data.length / oldZoom;
-        var panShift = (visibleWidth - oldVisibleWidth) * ratio;
-        panOffsetX = Math.max(0, Math.min(data.length - visibleWidth, panOffsetX - panShift));
-
-        drawChart();
-    });
-
-    canvas.addEventListener('mousedown', function(e) {
-        isDragging = true;
-        dragStartX = e.clientX;
-        dragStartPanX = panOffsetX;
-        canvas.style.cursor = 'grabbing';
-    });
-
-    document.addEventListener('mousemove', function(e) {
-        if (isDragging) {
-            var rect = canvas.getBoundingClientRect();
-            var dx = e.clientX - dragStartX;
-            var visibleWidth = data.length / zoomLevel;
-            var dataPerPixel = visibleWidth / rect.width;
-            panOffsetX = Math.max(0, Math.min(data.length - visibleWidth, dragStartPanX - dx * dataPerPixel));
-            drawChart();
-        }
-    });
-
-    document.addEventListener('mouseup', function() {
-        if (isDragging) {
-            isDragging = false;
-            canvas.style.cursor = 'crosshair';
-        }
-    });
-
-    canvas.addEventListener('mousemove', function(e) {
-        if (isDragging || !tooltip) return;
-        var rect = canvas.getBoundingClientRect();
-        var mx = e.clientX - rect.left;
-        var my = e.clientY - rect.top;
-
-        var range = getVisibleRange();
-        var visibleData = data.slice(range.start, range.end);
-        if (visibleData.length === 0) { tooltip.style.display = 'none'; return; }
-
-        var minVal = Infinity, maxVal = -Infinity;
-        for (var i = 0; i < visibleData.length; i++) {
-            if (visibleData[i] < minVal) minVal = visibleData[i];
-            if (visibleData[i] > maxVal) maxVal = visibleData[i];
-        }
-        var valRange = maxVal - minVal || 1;
-        var valPadding = valRange * 0.05;
-        minVal -= valPadding;
-        maxVal += valPadding;
-        valRange = maxVal - minVal;
-
-        var plotW = canvas.width - padding.left - padding.right;
-        var plotH = canvas.height - padding.top - padding.bottom;
-        var scaleX = canvas.width / rect.width;
-        var scaleY = canvas.height / rect.height;
-        var canvasMx = mx * scaleX;
-        var canvasMy = my * scaleY;
-
-        if (canvasMx < padding.left || canvasMx > canvas.width - padding.right ||
-            canvasMy < padding.top || canvasMy > canvas.height - padding.bottom) {
+        if (mx < padL || mx > padL + plotW || my < padT || my > padT + plotH) {
             tooltip.style.display = 'none';
             return;
         }
 
-        var dataIdx = Math.round((canvasMx - padding.left) / plotW * (visibleData.length - 1));
-        dataIdx = Math.max(0, Math.min(visibleData.length - 1, dataIdx));
-        var actualIdx = range.start + dataIdx;
-        var val = visibleData[dataIdx];
+        var dataIdx = Math.round(((mx - padL) / plotW) * (data.length - 1));
+        dataIdx = Math.max(0, Math.min(data.length - 1, dataIdx));
+        var val = data[dataIdx];
 
         tooltip.style.display = 'block';
-        tooltip.innerHTML = '[' + actualIdx + '] = ' + (typeof val === 'number' ? val.toFixed(6) : val);
-        var tooltipX = mx + 12;
-        var tooltipY = my - 28;
-        if (tooltipX + 120 > rect.width) tooltipX = mx - 120;
-        if (tooltipY < 0) tooltipY = my + 12;
-        tooltip.style.left = tooltipX + 'px';
-        tooltip.style.top = tooltipY + 'px';
+        tooltip.innerHTML = '<span class="tt-idx">[' + dataIdx + ']</span> <span class="tt-val">' + (typeof val === 'number' ? val.toFixed(6) : val) + '</span>';
+
+        var ttX = e.clientX - rect.left + 10;
+        var ttY = e.clientY - rect.top - 30;
+        if (ttX + 130 > rect.width) ttX = e.clientX - rect.left - 130;
+        if (ttY < 0) ttY = e.clientY - rect.top + 14;
+        tooltip.style.left = ttX + 'px';
+        tooltip.style.top = ttY + 'px';
     });
 
-    canvas.addEventListener('mouseleave', function() {
-        if (tooltip) tooltip.style.display = 'none';
+    svg.addEventListener('mouseleave', function() {
+        tooltip.style.display = 'none';
     });
 }
 
@@ -2894,6 +2789,37 @@ document.addEventListener('input', function(e) {
 settingsBtn.addEventListener('click', openSettings);
 closeSettingsBtn.addEventListener('click', closeSettings);
 overlay.addEventListener('click', closeSettings);
+
+var currentTheme = localStorage.getItem('matViewerTheme') || 'auto';
+
+function applyTheme(theme) {
+    currentTheme = theme;
+    localStorage.setItem('matViewerTheme', theme);
+
+    document.querySelectorAll('.theme-option').forEach(function(opt) {
+        opt.classList.remove('active');
+        if (opt.getAttribute('data-theme') === theme) {
+            opt.classList.add('active');
+        }
+    });
+
+    document.body.classList.remove('theme-light', 'theme-dark');
+
+    if (theme === 'auto') {
+        return;
+    }
+
+    document.body.classList.add(theme === 'dark' ? 'theme-dark' : 'theme-light');
+}
+
+document.querySelectorAll('.theme-option').forEach(function(opt) {
+    opt.addEventListener('click', function(e) {
+        e.stopPropagation();
+        applyTheme(this.getAttribute('data-theme'));
+    });
+});
+
+applyTheme(currentTheme);
 
 document.addEventListener('click', function(e) {
     var target = e.target;

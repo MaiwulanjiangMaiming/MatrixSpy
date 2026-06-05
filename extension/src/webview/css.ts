@@ -7,7 +7,7 @@ body {
     color: var(--vscode-editor-foreground);
     height: 100vh;
     overflow: hidden;
-    transition: background 0.3s ease, color 0.3s ease;
+    transition: background 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .main-content,
 .main-content * {
@@ -33,6 +33,7 @@ body {
     justify-content: space-between;
     align-items: center;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: background 0.4s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .header-left {
     display: flex;
@@ -165,6 +166,7 @@ body {
     border-radius: 16px;
     border: 1px solid var(--vscode-panel-border);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    transition: background 0.4s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .preview-header {
     margin-bottom: 20px;
@@ -189,6 +191,7 @@ body {
     padding: 20px;
     border-radius: 12px;
     overflow: auto;
+    transition: background 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     max-height: 650px;
     box-sizing: border-box;
     width: 100%;
@@ -600,7 +603,7 @@ body {
     border-left: 1px solid var(--vscode-panel-border);
     box-shadow: -4px 0 20px rgba(0, 0, 0, 0.2);
     transform: translateX(100%);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 1000;
     display: flex;
     flex-direction: column;
@@ -647,22 +650,44 @@ body {
     border-radius: 12px;
     cursor: pointer;
     text-align: center;
-    transition: all 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
 }
 .theme-option:hover {
     background: var(--vscode-sideBar-background);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.theme-option:active {
+    transform: translateY(0) scale(0.97);
+    box-shadow: none;
 }
 .theme-option.active {
     border-color: var(--vscode-button-background);
     background: var(--vscode-editor-background);
+    box-shadow: 0 0 0 1px var(--vscode-button-background), 0 2px 8px rgba(0,0,0,0.1);
+}
+.theme-option.active .theme-icon {
+    animation: themeIconPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .theme-icon {
     font-size: 28px;
     margin-bottom: 8px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.theme-option:hover .theme-icon {
+    transform: scale(1.15);
 }
 .theme-name {
     font-size: 13px;
     font-weight: 500;
+    transition: color 0.3s ease;
+}
+@keyframes themeIconPop {
+    0% { transform: scale(0.5); opacity: 0.3; }
+    60% { transform: scale(1.2); }
+    100% { transform: scale(1); opacity: 1; }
 }
 .version-info {
     padding: 20px;
@@ -783,7 +808,7 @@ body {
     border-right: 1px solid var(--vscode-panel-border);
     display: flex;
     flex-direction: column;
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, background 0.4s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     flex-shrink: 0;
     overflow: hidden;
 }
@@ -1061,6 +1086,82 @@ body {
     display: inline-block;
     vertical-align: middle;
     flex-shrink: 0;
+}
+.svg-chart-container {
+    position: relative;
+    margin-top: 16px;
+    background: var(--vscode-list-hoverBackground);
+    border-radius: 10px;
+    padding: 12px 16px;
+}
+.line-chart-svg {
+    width: 100%;
+    height: 180px;
+    display: block;
+    cursor: crosshair;
+}
+.svg-chart-tooltip {
+    position: absolute;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    pointer-events: none;
+    z-index: 10;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.svg-chart-tooltip .tt-idx {
+    color: var(--vscode-descriptionForeground);
+    margin-right: 4px;
+}
+.svg-chart-tooltip .tt-val {
+    color: var(--vscode-textLink-foreground);
+    font-weight: 600;
+}
+body.theme-light {
+    --vscode-editor-background: #ffffff !important;
+    --vscode-sideBar-background: #f3f3f3 !important;
+    --vscode-editor-foreground: #1e1e1e !important;
+    --vscode-descriptionForeground: #616161 !important;
+    --vscode-panel-border: #e0e0e0 !important;
+    --vscode-list-hoverBackground: rgba(0,0,0,0.06) !important;
+    --vscode-textLink-foreground: #0066b8 !important;
+    --vscode-editor-inactiveSelectionBackground: rgba(0,0,0,0.04) !important;
+    --vscode-editorWidget-background: #f3f3f3 !important;
+    --vscode-input-background: #ffffff !important;
+    --vscode-input-foreground: #1e1e1e !important;
+    --vscode-button-background: #0078d4 !important;
+    --vscode-button-secondaryBackground: rgba(0,0,0,0.08) !important;
+    --vscode-button-secondaryForeground: #1e1e1e !important;
+    --vscode-focusBorder: #0078d4 !important;
+    --vscode-editorWarning-foreground: #895503 !important;
+    --vscode-testing-iconPassed: #388a34 !important;
+    --vscode-errorForeground: #d32f2f !important;
+    --vscode-breadcrumbBackground: #f3f3f3 !important;
+}
+body.theme-dark {
+    --vscode-editor-background: #1e1e1e !important;
+    --vscode-sideBar-background: #252526 !important;
+    --vscode-editor-foreground: #cccccc !important;
+    --vscode-descriptionForeground: #888888 !important;
+    --vscode-panel-border: #3c3c3c !important;
+    --vscode-list-hoverBackground: rgba(255,255,255,0.06) !important;
+    --vscode-textLink-foreground: #3794ff !important;
+    --vscode-editor-inactiveSelectionBackground: rgba(255,255,255,0.04) !important;
+    --vscode-editorWidget-background: #252526 !important;
+    --vscode-input-background: #3c3c3c !important;
+    --vscode-input-foreground: #cccccc !important;
+    --vscode-button-background: #0e639c !important;
+    --vscode-button-secondaryBackground: rgba(255,255,255,0.1) !important;
+    --vscode-button-secondaryForeground: #cccccc !important;
+    --vscode-focusBorder: #0078d4 !important;
+    --vscode-editorWarning-foreground: #cca700 !important;
+    --vscode-testing-iconPassed: #4ec9b0 !important;
+    --vscode-errorForeground: #f48771 !important;
+    --vscode-breadcrumbBackground: #252526 !important;
 }
 `;
 }

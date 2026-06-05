@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.1] - 2026-06-05
+
+### Changed
+
+- **1D Chart: SVG rewrite** — replaced Canvas-based line chart with SVG rendering. The chart is now vector-based, auto-adapts to any DPI, and visually integrates with the VS Code webview. Added gradient area fill, dashed grid lines, and hover tooltip.
+- **Theme switching** — added Light / Dark / Auto theme buttons in the Settings panel (below Version info). Switching themes smoothly transitions all UI colors with 0.4s cubic-bezier animation. Theme buttons feature hover lift, active glow, and icon pop animations.
+
 ## [1.5.0] - 2026-06-03
 
 ### Added

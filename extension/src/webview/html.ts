@@ -72,7 +72,23 @@ export function getHtml(version: string): string {
                     </a>
                 </div>
             </div>
-
+            <div class="settings-section">
+                <div class="settings-section-title">Theme</div>
+                <div class="theme-options">
+                    <div class="theme-option" id="themeLight" data-theme="light">
+                        <div class="theme-icon">☀️</div>
+                        <div class="theme-name">Light</div>
+                    </div>
+                    <div class="theme-option active" id="themeDark" data-theme="dark">
+                        <div class="theme-icon">🌙</div>
+                        <div class="theme-name">Dark</div>
+                    </div>
+                    <div class="theme-option" id="themeAuto" data-theme="auto">
+                        <div class="theme-icon">🖥️</div>
+                        <div class="theme-name">Auto</div>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="settings-footer">
             <div class="support-section">
