@@ -13,135 +13,53 @@
   </a>
 </p>
 
-A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.mat` files. Supports all MAT versions (v4–v7.3), interactive tensor visualization with zoom controls, and export to CSV/JSON/NumPy/PNG.
+<p align="center">
+  <a href="extension/README.md">中文文档</a> · <a href="extension/README.en.md">English Docs</a>
+</p>
 
-## Features
+---
 
-- **All MAT file versions**: v4, v5, v6, v7, v7.3 (HDF5)
-- **Interactive tensor visualization**:
-  - 1D arrays with sparkline previews
-  - 2D matrices as heatmaps or tables
-  - 3D/4D+ tensors with slice viewer and zoom controls
-  - Complex numbers: Magnitude / Phase / Real / Imag
-- **9 Colormaps**: Grayscale, Viridis, Inferno, Plasma, Hot, Jet, Turbo, Coolwarm, RdBu
-- **Keyboard shortcuts**: Arrow keys for slices, +/- for zoom, T/I for view mode, C for colormap
-- **Image enhancement**: Window/Level contrast, rotate, flip horizontal/vertical
-- **Variable search & filter**: Search box in sidebar with type: prefix filtering
-- **Status bar**: Shows file name, variable count, active variable shape/dtype/memory
-- **Zoom controls** for image mode: +/- buttons, 1:1 reset, adaptive sizing
-- **Zoom persistence**: zoom level kept when switching slices/axis/view mode
-- **Tree view** for variable navigation with expandable structs
-- **Lazy loading** for large 3D tensors and HDF5 datasets
-- **Export**: CSV, JSON, NumPy NPY, PNG Image
-- **Setup wizard** with automatic dependency detection
+一个强大的 VS Code 扩展，用于浏览、可视化和导出 MATLAB `.mat` 文件。
 
-## Prerequisites
+**📖 请阅读 [extension/README.md](extension/README.md)（中文）或 [extension/README.en.md](extension/README.en.md)（English）查看完整文档。**
 
-**Python 3.8+** with:
+> 💡 我是个人开发者，纯靠兴趣维护这个项目。如果 MatrixSpy 对你有帮助，希望能动动发财的小手点个 ⭐ Star，谢谢！
 
-```bash
-pip install scipy numpy h5py mat73
+---
+
+A powerful VS Code extension for exploring, visualizing, and exporting MATLAB `.mat` files.
+
+**📖 See [extension/README.en.md](extension/README.en.md) for full English documentation.**
+
+> 💡 I'm a solo developer building this out of passion in my spare time. A ⭐ star on GitHub would mean a lot — it keeps the project going. Thank you!
+
+---
+
+## 目录结构
+
+```
+MatrixSpy/
+├── extension/              # VS Code 扩展主代码
+│   ├── README.md           # 中文文档
+│   ├── README.en.md        # English docs
+│   ├── src/                # TypeScript 源码
+│   ├── python/             # Python 后端解析器
+│   ├── media/              # 教程文档
+│   ├── resources/          # 图标资源
+│   ├── webview-dist/       # 打包后的 webview
+│   ├── package.json
+│   └── CHANGELOG.md
+└── README.md               # 本文件
 ```
 
-The extension checks dependencies on first launch and guides you through installation.
+## 快速链接
 
-## Usage
-
-### Opening MAT Files
-
-1. **Double-click** a `.mat` file in Explorer
-2. **Right-click** a `.mat` file → "Open MAT File"
-3. Command Palette (`Cmd+Shift+P`) → "MatrixSpy: Open MAT File"
-
-### Navigation
-
-- **Sidebar**: Browse all variables, expand structs, click to view
-- **Search box**: Filter variables by name or type (e.g., `type:struct`)
-- **Tree items**: Expand/collapse nested structures
-
-### Visualization
-
-| Data Type | Visualization |
-|-----------|---------------|
-| Scalar | Large number display |
-| 1D array | Grid with sparkline in sidebar |
-| 2D matrix | Heatmap (Image) or table (Table) |
-| 3D+ tensor | Slice viewer with axis/slice controls |
-| Complex | Magnitude / Phase / Real / Imag modes |
-| Struct | Expandable field tree |
-
-### Image Mode Controls
-
-When viewing tensors in Image mode:
-
-- **+ / -**: Zoom in/out (1.5x per click)
-- **1:1**: Reset to adaptive size
-- **Window/Level**: Adjust contrast range with sliders
-- **Rotate**: ↺ / ↻ buttons (90° increments)
-- **Flip**: ⇄ horizontal / ⇅ vertical
-- **Zoom persistence**: zoom level is kept when switching slices
-- **Adaptive sizing**: small tensors auto-upscaled, large tensors fit container
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `←` / `[` | Previous slice |
-| `→` / `]` | Next slice |
-| `+` / `=` | Zoom in |
-| `-` / `_` | Zoom out |
-| `0` | Reset zoom |
-| `T` | Toggle Image/Table view |
-| `I` | Switch to Image view |
-| `C` | Next colormap |
-| `Shift+C` | Previous colormap |
-
-### Export
-
-- Command Palette → "MatrixSpy: Export to CSV" / "Export to JSON" / "Export to NumPy" / "Export to PNG"
-
-## Configuration
-
-```json
-{
-  "matrixspy.pythonPath": "python3",
-  "matrixspy.maxDataSize": 10000
-}
-```
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for full version history.
-
-### v1.3.0 Highlights (2026-05-24)
-
-- **9 Colormaps**: Hot, Jet, Turbo, Coolwarm, RdBu added
-- **Keyboard shortcuts** for all common operations
-- **Status bar** showing active file and variable info
-- **Variable search & filter** in sidebar
-- **Image enhancement**: Window/Level, rotate, flip
-- **New exports**: NumPy NPY and PNG image formats
-
-### v1.2.1 Highlights (2026-05-15)
-
-- **Persistent Python Daemon**: ~25x faster slice loading
-- **Security**: CSP nonce, Python injection prevention
-- **Enhanced statistics**: percentiles, NaN/Inf, sparsity, memory
-
-### v1.2.0 Highlights (2026-05-15)
-
-- **Security**: Fixed XSS vulnerability, added CSP
-- **Image zoom controls** with persistence
-- **4D+ tensor support**
+- [中文文档 (extension/README.md)](extension/README.md)
+- [English Documentation (extension/README.en.md)](extension/README.en.md)
+- [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=MaiwulanjiangMaiming.matrixspy)
+- [Open VSX](https://open-vsx.org/extension/maiwulanjiangmaiming/matrixspy)
+- [GitHub Issues](https://github.com/MaiwulanjiangMaiming/MatrixSpy/issues)
 
 ## License
 
 MIT License
-
-## Contact
-
-For feature requests or bug reports: [GitHub Issues](https://github.com/MaiwulanjiangMaiming/MatrixSpy/issues)
-
----
-
-**Enjoy viewing your MAT files!**
