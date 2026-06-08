@@ -1195,6 +1195,191 @@ function initHeatmapContextMenu() {
     });
 }
 
+var valueSearchPanel = null;
+var searchHighlightOverlay = null;
+
+function toggleValueSearch() {
+    if (valueSearchPanel) {
+        valueSearchPanel.remove();
+        valueSearchPanel = null;
+        removeSearchHighlights();
+        return;
+    }
+    removeSearchHighlights();
+    valueSearchPanel = document.createElement('div');
+    valueSearchPanel.className = 'value-search-panel';
+    valueSearchPanel.innerHTML =
+        '<div class="vs-header">' +
+        '<span class="vs-title">Search Values</span>' +
+        '<button class="vs-close" id="vsCloseBtn">✕</button>' +
+        '</div>' +
+        '<div class="vs-body">' +
+        '<input type="text" id="vsInput" class="vs-input" placeholder="e.g. > 1e6, == NaN, < 0, Inf" />' +
+        '<button class="vs-go" id="vsGoBtn">Search</button>' +
+        '</div>' +
+        '<div class="vs-results" id="vsResults"></div>';
+    document.body.appendChild(valueSearchPanel);
+
+    document.getElementById('vsCloseBtn').addEventListener('click', function() {
+        if (valueSearchPanel) { valueSearchPanel.remove(); valueSearchPanel = null; }
+        removeSearchHighlights();
+    });
+
+    document.getElementById('vsGoBtn').addEventListener('click', function() { executeValueSearch(); });
+    document.getElementById('vsInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') executeValueSearch();
+    });
+
+    setTimeout(function() { document.getElementById('vsInput').focus(); }, 50);
+}
+
+function parseSearchCondition(expr) {
+    expr = expr.trim();
+    if (!expr) return null;
+    var lower = expr.toLowerCase();
+    if (lower === 'nan') return function(v) { return typeof v === 'number' && isNaN(v); };
+    if (lower === 'inf' || lower === '+inf') return function(v) { return typeof v === 'number' && v === Infinity; };
+    if (lower === '-inf') return function(v) { return typeof v === 'number' && v === -Infinity; };
+    if (lower === 'negative' || lower === '<0') return function(v) { return typeof v === 'number' && v < 0 && isFinite(v); };
+    if (lower === 'positive' || lower === '>0') return function(v) { return typeof v === 'number' && v > 0 && isFinite(v); };
+    if (lower === 'zero' || lower === '==0') return function(v) { return v === 0; };
+
+    var m = expr.match(/^(>|>=|<|<=|==|!=|=)\s*(.+)$/);
+    if (m) {
+        var op = m[1];
+        var val = parseFloat(m[2]);
+        if (isNaN(val)) return null;
+        switch (op) {
+            case '>':  return function(v) { return typeof v === 'number' && isFinite(v) && v > val; };
+            case '>=': return function(v) { return typeof v === 'number' && isFinite(v) && v >= val; };
+            case '<':  return function(v) { return typeof v === 'number' && isFinite(v) && v < val; };
+            case '<=': return function(v) { return typeof v === 'number' && isFinite(v) && v <= val; };
+            case '==': case '=': return function(v) { return typeof v === 'number' && v === val; };
+            case '!=': return function(v) { return typeof v === 'number' && v !== val; };
+        }
+    }
+    var numVal = parseFloat(expr);
+    if (!isNaN(numVal)) {
+        return function(v) { return typeof v === 'number' && Math.abs(v - numVal) < Math.abs(numVal) * 1e-6 + 1e-10; };
+    }
+    return null;
+}
+
+function executeValueSearch() {
+    var input = document.getElementById('vsInput');
+    var resultsEl = document.getElementById('vsResults');
+    if (!input || !resultsEl) return;
+
+    var expr = input.value.trim();
+    if (!expr) { resultsEl.innerHTML = '<div class="vs-empty">Enter a condition to search</div>'; return; }
+
+    var cond = parseSearchCondition(expr);
+    if (!cond) { resultsEl.innerHTML = '<div class="vs-error">Invalid expression. Try: > 1e6, == NaN, < 0, Inf</div>'; return; }
+
+    var currentData = pendingCanvasData;
+    if (!currentData) { resultsEl.innerHTML = '<div class="vs-error">No data to search</div>'; return; }
+
+    var matches = [];
+    var maxResults = 500;
+    for (var r = 0; r < currentData.length; r++) {
+        var row = currentData[r];
+        if (!row) continue;
+        for (var c = 0; c < row.length; c++) {
+            if (cond(row[c])) {
+                matches.push({ row: r, col: c, val: row[c] });
+                if (matches.length >= maxResults) break;
+            }
+        }
+        if (matches.length >= maxResults) break;
+    }
+
+    removeSearchHighlights();
+
+    if (matches.length === 0) {
+        resultsEl.innerHTML = '<div class="vs-empty">No matches found</div>';
+        return;
+    }
+
+    var html = '<div class="vs-count">' + matches.length + (matches.length >= maxResults ? '+' : '') + ' matches</div>';
+    html += '<div class="vs-list">';
+    var showCount = Math.min(matches.length, 50);
+    for (var i = 0; i < showCount; i++) {
+        var m = matches[i];
+        var valStr = typeof m.val === 'number' ? (isNaN(m.val) ? 'NaN' : isFinite(m.val) ? formatValue(m.val) : (m.val > 0 ? '+Inf' : '-Inf')) : String(m.val);
+        html += '<div class="vs-match" data-row="' + m.row + '" data-col="' + m.col + '">[' + m.row + ', ' + m.col + '] = ' + valStr + '</div>';
+    }
+    if (matches.length > showCount) {
+        html += '<div class="vs-more">... and ' + (matches.length - showCount) + ' more</div>';
+    }
+    html += '</div>';
+    resultsEl.innerHTML = html;
+
+    highlightSearchMatches(matches);
+}
+
+function removeSearchHighlights() {
+    if (searchHighlightOverlay) {
+        searchHighlightOverlay.remove();
+        searchHighlightOverlay = null;
+    }
+    var existing = document.querySelectorAll('.vs-cell-highlight');
+    for (var i = 0; i < existing.length; i++) { existing[i].classList.remove('vs-cell-highlight'); }
+}
+
+function highlightSearchMatches(matches) {
+    if (state.currentDisplayMode === 'image') {
+        var canvas = document.getElementById('imageCanvas');
+        if (!canvas) return;
+        var viewer = canvas.parentElement;
+        if (!viewer) return;
+
+        removeSearchHighlights();
+        searchHighlightOverlay = document.createElement('div');
+        searchHighlightOverlay.className = 'vs-highlight-overlay';
+
+        var canvasRect = canvas.getBoundingClientRect();
+        var viewerRect = viewer.getBoundingClientRect();
+        var nw = canvasZoomState.naturalWidth || canvas.width;
+        var nh = canvasZoomState.naturalHeight || canvas.height;
+        var scaleX = canvasRect.width / nw;
+        var scaleY = canvasRect.height / nh;
+        var offsetX = canvasRect.left - viewerRect.left;
+        var offsetY = canvasRect.top - viewerRect.top;
+
+        var showCount = Math.min(matches.length, 200);
+        for (var i = 0; i < showCount; i++) {
+            var m = matches[i];
+            var dot = document.createElement('div');
+            dot.className = 'vs-highlight-dot';
+            dot.style.left = (offsetX + m.col * scaleX) + 'px';
+            dot.style.top = (offsetY + m.row * scaleY) + 'px';
+            dot.style.width = Math.max(scaleX, 4) + 'px';
+            dot.style.height = Math.max(scaleY, 4) + 'px';
+            dot.title = '[' + m.row + ', ' + m.col + ']';
+            searchHighlightOverlay.appendChild(dot);
+        }
+        viewer.appendChild(searchHighlightOverlay);
+    } else {
+        var table = document.querySelector('.data-table');
+        if (!table) return;
+        var rows = table.querySelectorAll('tr');
+        var showCount = Math.min(matches.length, 200);
+        var matchSet = {};
+        for (var i = 0; i < showCount; i++) {
+            matchSet[matches[i].row + ',' + matches[i].col] = true;
+        }
+        for (var ri = 1; ri < rows.length; ri++) {
+            var cells = rows[ri].querySelectorAll('td');
+            for (var ci = 0; ci < cells.length; ci++) {
+                var key = (ri - 1) + ',' + ci;
+                if (matchSet[key]) {
+                    cells[ci].classList.add('vs-cell-highlight');
+                }
+            }
+        }
+    }
+}
+
 var RENDER_WORKER_CODE = [
     'self.onmessage = function(e) {',
     '    var d = e.data;',
@@ -2332,6 +2517,10 @@ function render2DArray(name, value) {
             '<div class="toolbar-group">' +
             '<button class="toolbar-btn' + (state.roiState.active ? ' active' : '') + '" id="roiBtn" title="ROI Selection" aria-label="ROI Selection">⬚</button>' +
             '</div>' +
+            '<div class="toolbar-divider"></div>' +
+            '<div class="toolbar-group">' +
+            '<button class="toolbar-btn" id="valueSearchBtn" title="Search values" aria-label="Search values">🔍</button>' +
+            '</div>' +
             '</div>' +
             '<div class="image-viewer">' +
             '<canvas id="imageCanvas" class="image-canvas" role="img" aria-label="Matrix visualization"></canvas>' +
@@ -2453,6 +2642,10 @@ function renderNDArray(name, value) {
             '<div class="toolbar-divider"></div>' +
             '<div class="toolbar-group">' +
             '<button class="toolbar-btn' + (state.roiState.active ? ' active' : '') + '" id="roiBtn" title="ROI Selection" aria-label="ROI Selection">⬚</button>' +
+            '</div>' +
+            '<div class="toolbar-divider"></div>' +
+            '<div class="toolbar-group">' +
+            '<button class="toolbar-btn" id="valueSearchBtn" title="Search values" aria-label="Search values">🔍</button>' +
             '</div>' +
             '</div>' +
             '<div class="image-viewer">' +
@@ -3052,6 +3245,8 @@ document.addEventListener('click', function(e) {
         flipCanvas('vertical');
     } else if (target.id === 'roiBtn') {
         toggleROI();
+    } else if (target.id === 'valueSearchBtn') {
+        toggleValueSearch();
     }
 });
 

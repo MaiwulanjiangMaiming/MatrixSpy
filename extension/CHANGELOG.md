@@ -8,6 +8,13 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.3] - 2026-06-08
+
+### Added
+
+- **Matrix value search**: click 🔍 in toolbar to search by condition (`> 1e6`, `== NaN`, `< 0`, `Inf`, etc.). Matches are highlighted on heatmap (yellow dots) and table (yellow cells).
+- **Global keybindings**: `Cmd/Ctrl+Shift+M` open file, `Cmd/Ctrl+Shift+E` export CSV, `Cmd/Ctrl+Shift+R` refresh, `Cmd/Ctrl+Shift+D` compare files.
+
 ## [1.5.2] - 2026-06-08
 
 ### Added

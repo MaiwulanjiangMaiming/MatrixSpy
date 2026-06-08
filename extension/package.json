@@ -2,7 +2,7 @@
   "name": "matrixspy",
   "displayName": "MatrixSpy",
   "description": "A powerful VS Code extension for exploring, visualizing, and exporting MATLAB .mat files. Supports all versions (v4-v7.3), image mat data, interactive plotting, and export to CSV/JSON/NumPy. Right-click any .mat file to open!",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "publisher": "maiwulanjiangmaiming",
   "repository": {
     "type": "git",
@@ -154,6 +154,32 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "matrixspy.openFile",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "resourceExtname == .mat"
+      },
+      {
+        "command": "matrixspy.exportCSV",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "matrixspy:hasActiveFile"
+      },
+      {
+        "command": "matrixspy.refreshVariables",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "matrixspy:hasActiveFile"
+      },
+      {
+        "command": "matrixspy.compareFiles",
+        "key": "ctrl+shift+d",
+        "mac": "cmd+shift+d",
+        "when": "resourceExtname == .mat"
+      }
+    ],
     "customEditors": [
       {
         "viewType": "matrixspy.matFile",
