@@ -985,6 +985,216 @@ function initROIEvents() {
     document.addEventListener('mouseup', mouseUpHandler);
 }
 
+var heatmapTooltip = null;
+
+function initHeatmapTooltip() {
+    var canvas = document.getElementById('imageCanvas');
+    if (!canvas) return;
+
+    if (heatmapTooltip) {
+        heatmapTooltip.remove();
+        heatmapTooltip = null;
+    }
+
+    heatmapTooltip = document.createElement('div');
+    heatmapTooltip.className = 'heatmap-tooltip';
+    heatmapTooltip.style.display = 'none';
+    document.body.appendChild(heatmapTooltip);
+
+    canvas.addEventListener('mousemove', function(e) {
+        try {
+            if (state.roiState.dragging) {
+                heatmapTooltip.style.display = 'none';
+                return;
+            }
+            var rect = canvas.getBoundingClientRect();
+            var nw = canvasZoomState.naturalWidth || canvas.width;
+            var nh = canvasZoomState.naturalHeight || canvas.height;
+            var scaleX = nw / rect.width;
+            var scaleY = nh / rect.height;
+            var col = Math.floor((e.clientX - rect.left) * scaleX);
+            var row = Math.floor((e.clientY - rect.top) * scaleY);
+            if (col < 0 || col >= nw || row < 0 || row >= nh) {
+                heatmapTooltip.style.display = 'none';
+                return;
+            }
+            var currentData = pendingCanvasData;
+            if (!currentData || !currentData[row]) {
+                heatmapTooltip.style.display = 'none';
+                return;
+            }
+            var val = currentData[row][col];
+            var valStr;
+            if (val === null || val === undefined) {
+                valStr = 'N/A';
+            } else if (typeof val === 'object' && val._type === 'complex') {
+                valStr = val.real.toFixed(4) + (val.imag >= 0 ? '+' : '') + val.imag.toFixed(4) + 'i';
+            } else if (typeof val === 'number') {
+                if (isNaN(val)) valStr = 'NaN';
+                else if (!isFinite(val)) valStr = val > 0 ? '+Inf' : '-Inf';
+                else valStr = formatValue(val);
+            } else {
+                valStr = String(val);
+            }
+            heatmapTooltip.innerHTML =
+                '<span class="ht-row">Row ' + row + '</span>' +
+                '<span class="ht-col">Col ' + col + '</span>' +
+                '<span class="ht-val">' + valStr + '</span>';
+            heatmapTooltip.style.display = 'block';
+            var tx = e.clientX + 14;
+            var ty = e.clientY + 14;
+            if (tx + 180 > window.innerWidth) tx = e.clientX - 180;
+            if (ty + 60 > window.innerHeight) ty = e.clientY - 60;
+            heatmapTooltip.style.left = tx + 'px';
+            heatmapTooltip.style.top = ty + 'px';
+        } catch(err) {}
+    });
+
+    canvas.addEventListener('mouseleave', function() {
+        if (heatmapTooltip) heatmapTooltip.style.display = 'none';
+    });
+}
+
+var contextMenuEl = null;
+
+function hideContextMenu() {
+    if (contextMenuEl) {
+        contextMenuEl.remove();
+        contextMenuEl = null;
+    }
+}
+
+function showContextMenu(items, x, y) {
+    hideContextMenu();
+    var menu = document.createElement('div');
+    menu.className = 'context-menu';
+    items.forEach(function(item) {
+        var btn = document.createElement('div');
+        btn.className = 'context-menu-item';
+        btn.textContent = item.label;
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            hideContextMenu();
+            item.action();
+        });
+        menu.appendChild(btn);
+    });
+    document.body.appendChild(menu);
+    var mw = menu.offsetWidth || 180;
+    var mh = menu.offsetHeight || items.length * 32;
+    var mx = x;
+    var my = y;
+    if (mx + mw > window.innerWidth) mx = window.innerWidth - mw - 4;
+    if (my + mh > window.innerHeight) my = window.innerHeight - mh - 4;
+    menu.style.left = mx + 'px';
+    menu.style.top = my + 'px';
+    contextMenuEl = menu;
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+    }
+}
+
+function initTableContextMenu() {
+    var table = document.querySelector('.data-table');
+    if (!table) return;
+    table.addEventListener('contextmenu', function(e) {
+        var td = e.target;
+        while (td && td.tagName !== 'TD') { td = td.parentElement; }
+        if (!td) return;
+        e.preventDefault();
+        var tr = td.parentElement;
+        var rowIdx = -1;
+        var colIdx = -1;
+        var cells = tr.querySelectorAll('td');
+        for (var ci = 0; ci < cells.length; ci++) {
+            if (cells[ci] === td) { colIdx = ci; break; }
+        }
+        var rows = table.querySelectorAll('tr');
+        for (var ri = 0; ri < rows.length; ri++) {
+            if (rows[ri] === tr) { rowIdx = ri - 1; break; }
+        }
+        var cellText = td.textContent || '';
+        var items = [
+            { label: 'Copy Cell Value', action: function() { copyToClipboard(cellText.trim()); } },
+            { label: 'Copy Current Row', action: function() {
+                var rowData = [];
+                var tds = tr.querySelectorAll('td');
+                for (var i = 0; i < tds.length; i++) { rowData.push(tds[i].textContent.trim()); }
+                copyToClipboard(rowData.join('\\t'));
+            }},
+            { label: 'Copy Current Column', action: function() {
+                var colData = [];
+                for (var i = 0; i < rows.length; i++) {
+                    var tds = rows[i].querySelectorAll('td');
+                    if (tds[colIdx]) colData.push(tds[colIdx].textContent.trim());
+                }
+                copyToClipboard(colData.join('\\n'));
+            }},
+            { label: 'Copy as CSV', action: function() {
+                var csvLines = [];
+                for (var i = 0; i < rows.length; i++) {
+                    var cells = rows[i].querySelectorAll('th, td');
+                    var line = [];
+                    for (var j = 0; j < cells.length; j++) {
+                        var t = cells[j].textContent.trim();
+                        if (t.indexOf(',') >= 0 || t.indexOf('"') >= 0) t = '"' + t.replace(/"/g, '""') + '"';
+                        line.push(t);
+                    }
+                    csvLines.push(line.join(','));
+                }
+                copyToClipboard(csvLines.join('\\n'));
+            }}
+        ];
+        showContextMenu(items, e.clientX, e.clientY);
+    });
+}
+
+function initHeatmapContextMenu() {
+    var canvas = document.getElementById('imageCanvas');
+    if (!canvas) return;
+    canvas.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        var rect = canvas.getBoundingClientRect();
+        var nw = canvasZoomState.naturalWidth || canvas.width;
+        var nh = canvasZoomState.naturalHeight || canvas.height;
+        var scaleX = nw / rect.width;
+        var scaleY = nh / rect.height;
+        var col = Math.floor((e.clientX - rect.left) * scaleX);
+        var row = Math.floor((e.clientY - rect.top) * scaleY);
+        if (col < 0 || col >= nw || row < 0 || row >= nh) return;
+        var currentData = pendingCanvasData;
+        var val = (currentData && currentData[row]) ? currentData[row][col] : undefined;
+        var valStr;
+        if (val === null || val === undefined) valStr = 'N/A';
+        else if (typeof val === 'number') {
+            if (isNaN(val)) valStr = 'NaN';
+            else if (!isFinite(val)) valStr = val > 0 ? '+Inf' : '-Inf';
+            else valStr = formatValue(val);
+        } else if (typeof val === 'object' && val._type === 'complex') {
+            valStr = val.real.toFixed(4) + (val.imag >= 0 ? '+' : '') + val.imag.toFixed(4) + 'i';
+        } else {
+            valStr = String(val);
+        }
+        var items = [
+            { label: 'Copy Value: ' + valStr, action: function() { copyToClipboard(valStr); } },
+            { label: 'Copy Position [' + row + ', ' + col + ']', action: function() { copyToClipboard('[' + row + ', ' + col + '] = ' + valStr); } }
+        ];
+        showContextMenu(items, e.clientX, e.clientY);
+    });
+}
+
 var RENDER_WORKER_CODE = [
     'self.onmessage = function(e) {',
     '    var d = e.data;',
@@ -2412,7 +2622,10 @@ function initPreviewWidgets() {
             }
         }
         if (value.shape.length >= 2 && state.currentDisplayMode === 'image') {
-            setTimeout(function() { initROIEvents(); }, 50);
+            setTimeout(function() { initROIEvents(); initHeatmapTooltip(); initHeatmapContextMenu(); }, 50);
+        }
+        if (value.shape.length >= 2 && state.currentDisplayMode === 'table') {
+            setTimeout(function() { initTableContextMenu(); }, 50);
         }
     }
 }
@@ -2994,5 +3207,6 @@ document.addEventListener('keydown', function(e) {
 });
 
 window.addEventListener('message', handleMessage);
+document.addEventListener('click', function() { hideContextMenu(); });
 `;
 }

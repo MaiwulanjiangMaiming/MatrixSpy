@@ -1121,6 +1121,50 @@ body {
     color: var(--vscode-textLink-foreground);
     font-weight: 600;
 }
+.heatmap-tooltip {
+    position: fixed;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    pointer-events: none;
+    z-index: 100;
+    white-space: nowrap;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.heatmap-tooltip .ht-row,
+.heatmap-tooltip .ht-col {
+    color: var(--vscode-descriptionForeground);
+}
+.heatmap-tooltip .ht-val {
+    color: var(--vscode-textLink-foreground);
+    font-weight: 600;
+}
+.context-menu {
+    position: fixed;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 180px;
+    z-index: 200;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    font-size: 13px;
+}
+.context-menu-item {
+    padding: 6px 16px;
+    cursor: pointer;
+    color: var(--vscode-editor-foreground);
+    transition: background 0.15s ease;
+}
+.context-menu-item:hover {
+    background: var(--vscode-list-hoverBackground);
+}
 body.theme-light {
     --vscode-editor-background: #ffffff !important;
     --vscode-sideBar-background: #f3f3f3 !important;
