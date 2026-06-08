@@ -42,7 +42,8 @@ const state = {
     windowWidth: 1.0,
     current1DViewMode: localStorage.getItem('matViewer1DViewMode') || 'grid',
     navigationPath: [],
-    roiState: { active: false, startX: 0, startY: 0, endX: 0, endY: 0, dragging: false }
+    roiState: { active: false, startX: 0, startY: 0, endX: 0, endY: 0, dragging: false },
+    currentStats: null
 };
 
 function MatViewerStore() {
@@ -605,6 +606,7 @@ function formatFieldValue(value) {
 
 function renderStats(stats) {
     if (!stats || stats.min === undefined) return '';
+    state.currentStats = stats;
     var html = '<div class="stats-grid">' +
         '<div class="stat-item"><div class="stat-label">Min</div><div class="stat-value">' + (typeof stats.min === 'number' ? stats.min.toFixed(4) : escapeHtml(String(stats.min))) + '</div></div>' +
         '<div class="stat-item"><div class="stat-label">Max</div><div class="stat-value">' + (typeof stats.max === 'number' ? stats.max.toFixed(4) : escapeHtml(String(stats.max))) + '</div></div>';
@@ -651,10 +653,11 @@ function renderStats(stats) {
     if (stats.percentiles) {
         html += '<div class="mini-histogram-container">';
         html += '<div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:4px;">Distribution</div>';
-        html += '<canvas id="miniHistogram" class="mini-histogram" width="220" height="50"></canvas>';
+        html += '<div id="miniHistogramContainer" class="mini-histogram-wrapper"></div>';
         html += '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--vscode-descriptionForeground);font-family:monospace;margin-top:2px;">';
         html += '<span>' + formatValue(stats.min) + '</span><span>' + formatValue(stats.max) + '</span>';
         html += '</div>';
+        html += '<button id="expandHistogramBtn" class="expand-histogram-btn" title="Expand histogram">Expand Histogram</button>';
         html += '</div>';
     }
 
@@ -1380,6 +1383,179 @@ function highlightSearchMatches(matches) {
     }
 }
 
+var fullHistogramPanel = null;
+
+function showFullHistogram() {
+    if (fullHistogramPanel) {
+        fullHistogramPanel.remove();
+        fullHistogramPanel = null;
+        return;
+    }
+    var stats = state.currentStats;
+    if (!stats || !stats.percentiles) return;
+    var currentData = pendingCanvasData;
+
+    fullHistogramPanel = document.createElement('div');
+    fullHistogramPanel.className = 'full-histogram-panel';
+    fullHistogramPanel.innerHTML =
+        '<div class="fh-header">' +
+        '<span class="fh-title">Histogram</span>' +
+        '<div class="fh-controls">' +
+        '<label class="fh-label">Bins</label>' +
+        '<input type="range" id="fhBinSlider" min="5" max="100" value="30" class="fh-slider" />' +
+        '<span id="fhBinCount" class="fh-bin-count">30</span>' +
+        '<label class="fh-label"><input type="checkbox" id="fhLogY" /> Log Y</label>' +
+        '</div>' +
+        '<button class="fh-close" id="fhCloseBtn">✕</button>' +
+        '</div>' +
+        '<div class="fh-body">' +
+        '<div id="fhSvgContainer" class="fh-svg-container"></div>' +
+        '<div id="fhTooltip" class="fh-tooltip" style="display:none;"></div>' +
+        '</div>';
+    document.body.appendChild(fullHistogramPanel);
+
+    document.getElementById('fhCloseBtn').addEventListener('click', function() {
+        if (fullHistogramPanel) { fullHistogramPanel.remove(); fullHistogramPanel = null; }
+    });
+    document.getElementById('fhBinSlider').addEventListener('input', function() {
+        document.getElementById('fhBinCount').textContent = this.value;
+        drawFullHistogramSVG(currentData, stats, parseInt(this.value), document.getElementById('fhLogY').checked);
+    });
+    document.getElementById('fhLogY').addEventListener('change', function() {
+        drawFullHistogramSVG(currentData, stats, parseInt(document.getElementById('fhBinSlider').value), this.checked);
+    });
+
+    drawFullHistogramSVG(currentData, stats, 30, false);
+}
+
+function drawFullHistogramSVG(data, stats, numBins, logY) {
+    var container = document.getElementById('fhSvgContainer');
+    if (!container) return;
+
+    var min = stats.min;
+    var max = stats.max;
+    var range = max - min || 1;
+
+    var bins = new Array(numBins).fill(0);
+    if (data) {
+        for (var r = 0; r < data.length; r++) {
+            var row = data[r];
+            if (!row) continue;
+            for (var c = 0; c < row.length; c++) {
+                var v = row[c];
+                if (typeof v === 'number' && isFinite(v)) {
+                    var bi = Math.min(Math.floor((v - min) / range * numBins), numBins - 1);
+                    if (bi >= 0) bins[bi]++;
+                }
+            }
+        }
+    } else if (stats.percentiles) {
+        var pCounts = [0.05, 0.20, 0.25, 0.25, 0.20, 0.05];
+        var pBounds = [min, stats.percentiles.p5, stats.percentiles.p25, stats.percentiles.p50, stats.percentiles.p75, stats.percentiles.p95, max];
+        for (var seg = 0; seg < 6; seg++) {
+            var segMin = pBounds[seg];
+            var segMax = pBounds[seg + 1];
+            var segRange = segMax - segMin || range * 0.01;
+            var count = pCounts[seg];
+            for (var bj = 0; bj < numBins; bj++) {
+                var bCenter = min + range * (bj + 0.5) / numBins;
+                if (bCenter >= segMin && bCenter < segMax) {
+                    bins[bj] += count / (segRange / range * numBins);
+                }
+            }
+        }
+    }
+
+    var maxBin = 0;
+    for (var i = 0; i < bins.length; i++) {
+        if (bins[i] > maxBin) maxBin = bins[i];
+    }
+    if (maxBin === 0) { container.innerHTML = ''; return; }
+
+    var svgW = 600;
+    var svgH = 300;
+    var padL = 50;
+    var padR = 15;
+    var padT = 15;
+    var padB = 35;
+    var plotW = svgW - padL - padR;
+    var plotH = svgH - padT - padB;
+    var barW = plotW / numBins;
+
+    var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
+
+    var maxVal = logY ? Math.log10(maxBin + 1) : maxBin;
+
+    var bars = '';
+    for (var bb = 0; bb < numBins; bb++) {
+        var barVal = logY ? Math.log10(bins[bb] + 1) : bins[bb];
+        var barH = maxVal > 0 ? (barVal / maxVal) * plotH : 0;
+        var norm = bb / Math.max(numBins - 1, 1);
+        var rgb = colormap(norm);
+        var x = padL + bb * barW;
+        var y = padT + plotH - barH;
+        bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (barW - 0.8).toFixed(1) + '" height="' + barH.toFixed(1) + '" fill="rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')" opacity="0.85" rx="0.8" data-bin="' + bb + '" class="fh-bar" />';
+    }
+
+    var gridLines = '';
+    var yLabels = '';
+    for (var yi = 0; yi <= 4; yi++) {
+        var yy = padT + plotH * (1 - yi / 4);
+        gridLines += '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (padL + plotW) + '" y2="' + yy.toFixed(1) + '" stroke="var(--vscode-panel-border)" stroke-width="0.3" stroke-dasharray="3,3" />';
+        var yval;
+        if (logY) {
+            yval = Math.pow(10, Math.log10(maxBin + 1) * yi / 4);
+            yval = Math.round(yval);
+        } else {
+            yval = Math.round(maxBin * yi / 4);
+        }
+        yLabels += '<text x="' + (padL - 4) + '" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" font-size="7" fill="var(--vscode-descriptionForeground)" font-family="monospace">' + yval + '</text>';
+    }
+
+    var xLabels = '';
+    var labelCount = Math.min(numBins, 8);
+    for (var li = 0; li <= labelCount; li++) {
+        var lx = padL + plotW * li / labelCount;
+        var lval = min + range * li / labelCount;
+        xLabels += '<text x="' + lx.toFixed(1) + '" y="' + (svgH - padB + 12) + '" text-anchor="middle" font-size="7" fill="var(--vscode-descriptionForeground)" font-family="monospace">' + formatValue(lval) + '</text>';
+    }
+
+    var medianLine = '';
+    if (stats.percentiles && stats.percentiles.p50 !== undefined) {
+        var medianX = padL + ((stats.percentiles.p50 - min) / range) * plotW;
+        medianLine = '<line x1="' + medianX.toFixed(1) + '" y1="' + padT + '" x2="' + medianX.toFixed(1) + '" y2="' + (padT + plotH) + '" stroke="var(--vscode-descriptionForeground)" stroke-width="0.5" stroke-dasharray="4,4" opacity="0.6" />';
+        medianLine += '<text x="' + medianX.toFixed(1) + '" y="' + (padT - 3) + '" text-anchor="middle" font-size="6" fill="var(--vscode-descriptionForeground)" font-family="sans-serif">median</text>';
+    }
+
+    var svg = '<svg viewBox="0 0 ' + svgW + ' ' + svgH + '" preserveAspectRatio="xMidYMid meet" class="full-histogram-svg" xmlns="http://www.w3.org/2000/svg">';
+    svg += gridLines + yLabels + xLabels + bars + medianLine;
+    svg += '</svg>';
+
+    container.innerHTML = svg;
+
+    var svgEl = container.querySelector('svg');
+    svgEl.addEventListener('mousemove', function(e) {
+        var rect = svgEl.getBoundingClientRect();
+        var scaleX = svgW / rect.width;
+        var x = (e.clientX - rect.left) * scaleX;
+        var binIdx = Math.floor((x - padL) / barW);
+        if (binIdx < 0 || binIdx >= numBins) {
+            document.getElementById('fhTooltip').style.display = 'none';
+            return;
+        }
+        var binMin = min + range * binIdx / numBins;
+        var binMax = min + range * (binIdx + 1) / numBins;
+        var tip = document.getElementById('fhTooltip');
+        tip.innerHTML = '<b>Bin ' + binIdx + '</b><br>Range: ' + formatValue(binMin) + ' ~ ' + formatValue(binMax) + '<br>Count: ' + Math.round(bins[binIdx]);
+        tip.style.display = 'block';
+        tip.style.left = (e.clientX + 12) + 'px';
+        tip.style.top = (e.clientY - 30) + 'px';
+    });
+    svgEl.addEventListener('mouseleave', function() {
+        document.getElementById('fhTooltip').style.display = 'none';
+    });
+}
+
 var RENDER_WORKER_CODE = [
     'self.onmessage = function(e) {',
     '    var d = e.data;',
@@ -1726,25 +1902,16 @@ function formatValue(v) {
 }
 
 function renderMiniHistogram(stats) {
-    var canvas = document.getElementById('miniHistogram');
-    if (!canvas || !stats.percentiles) return;
-
-    var ctx = canvas.getContext('2d');
-    var w = canvas.width;
-    var h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
+    var container = document.getElementById('miniHistogramContainer');
+    if (!container || !stats.percentiles) return;
 
     var p = stats.percentiles;
     var min = stats.min;
     var max = stats.max;
     var range = max - min || 1;
 
-    var bins = new Array(40).fill(0);
-    var binEdges = [];
-    for (var bi = 0; bi <= 40; bi++) {
-        binEdges.push(min + range * bi / 40);
-    }
-
+    var numBins = 40;
+    var bins = new Array(numBins).fill(0);
     var pCounts = [0.05, 0.20, 0.25, 0.25, 0.20, 0.05];
     var pBounds = [min, p.p5, p.p25, p.p50, p.p75, p.p95, max];
 
@@ -1753,45 +1920,49 @@ function renderMiniHistogram(stats) {
         var segMax = pBounds[seg + 1];
         var segRange = segMax - segMin || range * 0.01;
         var count = pCounts[seg];
-
-        for (var bj = 0; bj < 40; bj++) {
-            var bCenter = (binEdges[bj] + binEdges[bj + 1]) / 2;
+        for (var bj = 0; bj < numBins; bj++) {
+            var bCenter = min + range * (bj + 0.5) / numBins;
             if (bCenter >= segMin && bCenter < segMax) {
-                bins[bj] += count / (segRange / range * 40);
+                bins[bj] += count / (segRange / range * numBins);
             }
         }
     }
 
     var maxBin = 0;
-    for (var bk = 0; bk < 40; bk++) {
+    for (var bk = 0; bk < numBins; bk++) {
         if (bins[bk] > maxBin) maxBin = bins[bk];
     }
     if (maxBin === 0) return;
 
-    ctx.fillStyle = 'var(--vscode-list-hoverBackground)';
-    ctx.fillRect(0, 0, w, h);
+    var svgW = 220;
+    var svgH = 28;
+    var padL = 2;
+    var padR = 2;
+    var padT = 2;
+    var padB = 2;
+    var plotW = svgW - padL - padR;
+    var plotH = svgH - padT - padB;
+    var barW = plotW / numBins;
 
-    var barW = w / 40;
     var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
-    for (var bb = 0; bb < 40; bb++) {
-        var barH = (bins[bb] / maxBin) * h * 0.85;
-        var norm = bb / 39;
+    var bars = '';
+    for (var bb = 0; bb < numBins; bb++) {
+        var barH = (bins[bb] / maxBin) * plotH * 0.9;
+        var norm = bb / (numBins - 1);
         var rgb = colormap(norm);
-        ctx.fillStyle = 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
-        ctx.globalAlpha = 0.8;
-        ctx.fillRect(bb * barW + 1, h - barH, barW - 2, barH);
+        var x = padL + bb * barW;
+        var y = padT + plotH - barH;
+        bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (barW - 0.3).toFixed(1) + '" height="' + barH.toFixed(1) + '" fill="rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')" opacity="0.8" />';
     }
-    ctx.globalAlpha = 1;
 
-    ctx.strokeStyle = 'var(--vscode-descriptionForeground)';
-    ctx.lineWidth = 0.5;
-    ctx.setLineDash([3, 3]);
-    var medianX = ((p.p50 - min) / range) * w;
-    ctx.beginPath();
-    ctx.moveTo(medianX, 0);
-    ctx.lineTo(medianX, h);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    var medianX = padL + ((p.p50 - min) / range) * plotW;
+    var medianLine = '<line x1="' + medianX.toFixed(1) + '" y1="' + padT + '" x2="' + medianX.toFixed(1) + '" y2="' + (padT + plotH) + '" stroke="var(--vscode-descriptionForeground)" stroke-width="0.5" stroke-dasharray="2,2" opacity="0.6" />';
+
+    var svg = '<svg viewBox="0 0 ' + svgW + ' ' + svgH + '" preserveAspectRatio="xMidYMid meet" class="mini-histogram-svg" xmlns="http://www.w3.org/2000/svg">';
+    svg += bars + medianLine;
+    svg += '</svg>';
+
+    container.innerHTML = svg;
 }
 
 function renderHistogram(data, canvasId) {
@@ -3245,8 +3416,10 @@ document.addEventListener('click', function(e) {
         flipCanvas('vertical');
     } else if (target.id === 'roiBtn') {
         toggleROI();
-    } else if (target.id === 'valueSearchBtn') {
+    } else if (target.id === 'valueSearchBtn' || (target.closest && target.closest('#valueSearchBtn'))) {
         toggleValueSearch();
+    } else if (target.id === 'expandHistogramBtn' || (target.closest && target.closest('#expandHistogramBtn'))) {
+        showFullHistogram();
     }
 });
 

@@ -14,6 +14,7 @@
   "command.matrixspy.showWelcome.title": "显示欢迎页",
   "command.matrixspy.resetWelcome.title": "重置欢迎页状态",
   "command.matrixspy.compareFiles.title": "与...比较",
+  "command.matrixspy.openRecent.title": "打开最近的 MAT 文件",
   "configuration.matrixspy.pythonPath.description": "Python 可执行文件路径",
   "configuration.matrixspy.maxDataSize.description": "最大加载数据大小（元素数量）",
   "configuration.matrixspy.enableImage.description": "启用图像 MAT 数据专用功能",

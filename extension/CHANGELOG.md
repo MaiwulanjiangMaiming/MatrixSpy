@@ -8,6 +8,19 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.4] - 2026-06-08
+
+### Added
+
+- **Recent files history**: `MatrixSpy: Open Recent MAT File` command shows last 10 opened files.
+- **Full-size interactive histogram**: Expand Histogram button opens SVG histogram with adjustable bins, log Y axis, hover tooltips, and median line.
+- **Mini histogram SVG rewrite**: Distribution preview now uses SVG instead of Canvas for crisp Retina rendering.
+
+### Fixed
+
+- **Histogram blur**: Both mini and full histograms rewritten from Canvas to SVG for sharp rendering on all displays.
+- **Expand Histogram button**: Fixed `state.currentStats` not being stored, causing the button to do nothing.
+
 ## [1.5.3] - 2026-06-08
 
 ### Added

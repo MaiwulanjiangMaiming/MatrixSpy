@@ -14,6 +14,7 @@
   "command.matrixspy.showWelcome.title": "Show Welcome Page",
   "command.matrixspy.resetWelcome.title": "Reset Welcome State",
   "command.matrixspy.compareFiles.title": "Compare with...",
+  "command.matrixspy.openRecent.title": "Open Recent MAT File",
   "configuration.matrixspy.pythonPath.description": "Path to Python executable",
   "configuration.matrixspy.maxDataSize.description": "Maximum data size to load (number of elements)",
   "configuration.matrixspy.enableImage.description": "Enable image mat data-specific features",

@@ -236,10 +236,17 @@ body {
     margin-top: 12px;
     text-align: center;
 }
-.mini-histogram {
+.mini-histogram-wrapper {
     border-radius: 6px;
     background: var(--vscode-list-hoverBackground);
-    max-width: 100%;
+    overflow: hidden;
+    max-width: 240px;
+    margin: 0 auto;
+}
+.mini-histogram-svg {
+    width: 100%;
+    height: auto;
+    display: block;
 }
 .stat-item {
     padding: 16px;
@@ -1287,6 +1294,108 @@ body {
 .vs-cell-highlight {
     background: rgba(255, 200, 0, 0.25) !important;
     outline: 1px solid rgba(255, 200, 0, 0.7);
+}
+.expand-histogram-btn {
+    margin-top: 6px;
+    width: 100%;
+    padding: 4px 0;
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: opacity 0.15s;
+}
+.expand-histogram-btn:hover {
+    opacity: 0.85;
+}
+.full-histogram-panel {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 660px;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    z-index: 200;
+}
+.fh-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+.fh-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--vscode-editor-foreground);
+}
+.fh-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+}
+.fh-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+.fh-slider {
+    width: 80px;
+}
+.fh-bin-count {
+    min-width: 24px;
+    text-align: center;
+    font-family: monospace;
+    font-size: 12px;
+}
+.fh-close {
+    background: none;
+    border: none;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+}
+.fh-close:hover {
+    color: var(--vscode-editor-foreground);
+}
+.fh-body {
+    padding: 12px 16px 16px;
+    position: relative;
+}
+.fh-svg-container {
+    width: 100%;
+}
+.full-histogram-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+.fh-bar {
+    transition: opacity 0.15s;
+}
+.fh-bar:hover {
+    opacity: 1 !important;
+}
+.fh-tooltip {
+    position: fixed;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-family: monospace;
+    pointer-events: none;
+    z-index: 210;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
 body.theme-light {
     --vscode-editor-background: #ffffff !important;

@@ -16,6 +16,8 @@ const localize = nls.loadMessageBundle();
 const TELEMETRY_KEY = 'matrixspy-telemetry';
 
 const WELCOME_SHOWN_KEY = 'matrixspy.welcomeShown';
+const RECENT_FILES_KEY = 'matrixspy.recentFiles';
+const MAX_RECENT_FILES = 10;
 
 let currentTreeDataProvider: MatVariableTreeDataProvider | null = null;
 let currentEditorProvider: MatFileEditorProvider | null = null;
@@ -337,8 +339,37 @@ function registerCommands(context: vscode.ExtensionContext): void {
             await context.globalState.update(WELCOME_SHOWN_KEY, false);
             vscode.window.showInformationMessage(localize('welcomeReset', 'MatrixSpy: Welcome page state reset. Restart VS Code to see the welcome page.'));
         }),
-        vscode.commands.registerCommand('matrixspy.compareFiles', (uri?: vscode.Uri) => compareFilesCommand(uri))
+        vscode.commands.registerCommand('matrixspy.compareFiles', (uri?: vscode.Uri) => compareFilesCommand(uri)),
+        vscode.commands.registerCommand('matrixspy.openRecent', async () => {
+            const recent = context.globalState.get<string[]>(RECENT_FILES_KEY, []);
+            if (recent.length === 0) {
+                vscode.window.showInformationMessage(localize('noRecentFiles', 'No recent .mat files found.'));
+                return;
+            }
+            const items = recent.map(f => ({
+                label: f.split('/').pop() || f.split('\\').pop() || f,
+                description: f,
+                detail: f
+            }));
+            const picked = await vscode.window.showQuickPick(items, {
+                placeHolder: localize('selectRecentFile', 'Select a recent .mat file to open')
+            });
+            if (picked) {
+                const uri = vscode.Uri.file(picked.detail);
+                vscode.commands.executeCommand('vscode.openWith', uri, 'matrixspy.matFile');
+            }
+        })
     );
+}
+
+export async function addRecentFile(context: vscode.ExtensionContext, filePath: string): Promise<void> {
+    const recent = context.globalState.get<string[]>(RECENT_FILES_KEY, []);
+    const filtered = recent.filter(f => f !== filePath);
+    filtered.unshift(filePath);
+    if (filtered.length > MAX_RECENT_FILES) {
+        filtered.length = MAX_RECENT_FILES;
+    }
+    await context.globalState.update(RECENT_FILES_KEY, filtered);
 }
 
 function registerEventHandlers(context: vscode.ExtensionContext): void {

@@ -7,7 +7,7 @@ Author: Maiwulanjiang Maiming
 import * as vscode from 'vscode';
 import * as nls from 'vscode-nls';
 import { PythonBridge } from '../ipc/PythonBridge';
-import { updateTreeData, updateCurrentWebviewPanel, cacheFileData, updateStatusBar, sendTelemetry } from '../extension';
+import { updateTreeData, updateCurrentWebviewPanel, cacheFileData, updateStatusBar, sendTelemetry, addRecentFile } from '../extension';
 import { getHtml } from '../webview/html';
 import type { WebviewToExtension, ExtensionToWebview } from '../types/messages';
 
@@ -51,6 +51,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         _token: vscode.CancellationToken
     ): Promise<void> {
         updateCurrentWebviewPanel(webviewPanel);
+        addRecentFile(this.context, document.uri.fsPath);
 
         webviewPanel.webview.options = {
             enableScripts: true,
