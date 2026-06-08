@@ -8,6 +8,14 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.2] - 2026-06-08
+
+### Added
+
+- **Heatmap pixel tooltip**: hover over any pixel in the heatmap to see row, column, and value. NaN/Inf/complex values are properly displayed.
+- **Right-click copy menu (Table)**: copy cell value, current row, current column, or entire table as CSV.
+- **Right-click copy menu (Heatmap)**: copy pixel value or position with value.
+
 ## [1.5.1] - 2026-06-05
 
 ### Changed
