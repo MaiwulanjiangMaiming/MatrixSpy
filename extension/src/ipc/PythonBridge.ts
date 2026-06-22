@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import { ParserResult } from '../types';
-import { createError, ERROR_CODES, ErrorCode } from '../utils/errorHandler';
+import { createError, ERROR_CODES } from '../utils/errorHandler';
 
 export interface DependencyCheckResult {
     pythonFound: boolean;
@@ -19,7 +19,6 @@ interface PendingRequest {
 }
 
 export class PythonBridge {
-    private readonly pythonPath: string;
     private readonly scriptPath: string;
     private daemonProcess: ChildProcess | null = null;
     private disposed = false;
@@ -31,13 +30,31 @@ export class PythonBridge {
     private readonly maxProcessTimeout = 60000;
     private restarting = false;
     private onProgressCallback: ((progress: number, stage: string) => void) | null = null;
+    /** Singleton lock so concurrent callers don't spawn multiple daemons. */
+    private startPromise: Promise<void> | null = null;
+    /** Bounded stdout buffer to avoid unbounded memory growth on malformed peers. */
+    private static readonly MAX_STDOUT_BUFFER = 64 * 1024 * 1024;
+    /** Bound on a single request line length accepted from the daemon. */
+    private static readonly MAX_FILE_SIZE_MB = 100;
+    /** Last pythonPath used to spawn the daemon. Tracked so we can detect
+     *  setting changes and respawn the daemon with the new interpreter. */
+    private lastPythonPath: string | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         const extensionPath = context.extensionPath;
-        const config = vscode.workspace.getConfiguration('matrixspy');
-
-        this.pythonPath = config.get<string>('pythonPath', 'python3');
         this.scriptPath = path.join(extensionPath, 'python', 'high_perf_parser.py');
+    }
+
+    /**
+     * Read the currently configured Python interpreter path.
+     *
+     * The setting is read on every call (not cached in the constructor) so
+     * that users who change `matrixspy.pythonPath` in Settings get the new
+     * interpreter on the next request without having to reload the window.
+     */
+    private get pythonPath(): string {
+        const config = vscode.workspace.getConfiguration('matrixspy');
+        return config.get<string>('pythonPath', 'python3');
     }
 
     static async checkDependencies(pythonPath: string): Promise<DependencyCheckResult> {
@@ -122,38 +139,82 @@ print(','.join(missing))`
     }
 
     private async ensureDaemon(): Promise<void> {
+        // If the user changed matrixspy.pythonPath since the daemon was
+        // spawned, tear down the old daemon so the next request starts a
+        // fresh one with the new interpreter. Without this, the daemon would
+        // keep using the old Python even after the user updated the setting.
+        const currentPath = this.pythonPath;
+        if (this.daemonProcess && this.daemonProcess.exitCode === null
+            && this.lastPythonPath !== null && this.lastPythonPath !== currentPath) {
+            this.stopHeartbeat();
+            this.killProcess(this.daemonProcess);
+            this.daemonProcess = null;
+            this.daemonReadyReceived = false;
+            this.lastPythonPath = null;
+            // Reject any in-flight requests on the old daemon so callers
+            // don't hang waiting for a response that will never come.
+            this.rejectAllPending('Python interpreter changed; daemon restarting');
+        }
+
         if (this.daemonProcess && this.daemonProcess.exitCode === null) {
             return;
         }
-
-        await this.startDaemon();
+        // Singleton lock: concurrent callers share the same startup promise
+        // so we never spawn two daemon processes.
+        if (this.startPromise) {
+            return this.startPromise;
+        }
+        this.startPromise = this.startDaemon().finally(() => {
+            this.startPromise = null;
+        });
+        return this.startPromise;
     }
 
     private startDaemon(): Promise<void> {
+        const pythonPath = this.pythonPath;
         return new Promise((resolve, reject) => {
-            this.daemonProcess = spawn(this.pythonPath, [this.scriptPath, '--daemon'], {
+            this.daemonProcess = spawn(pythonPath, [this.scriptPath, '--daemon'], {
                 stdio: ['pipe', 'pipe', 'pipe']
             });
 
+            // Record the interpreter used for this daemon so ensureDaemon()
+            // can detect setting changes and respawn with a new interpreter.
+            this.lastPythonPath = pythonPath;
+
             let started = false;
+            let stderrBuffer = '';
+            const startupTimeout = setTimeout(() => {
+                if (!started) {
+                    this.killProcess(this.daemonProcess);
+                    this.daemonProcess = null;
+                    reject(new Error(`Daemon startup timeout. Stderr: ${stderrBuffer.slice(-500)}`));
+                }
+            }, 15000);
 
             this.daemonProcess.stdout?.on('data', (data: Buffer) => {
                 this.handleStdoutData(data);
-                if (!started) {
+                // Resolve on the explicit "ready" handshake emitted by the daemon,
+                // not on arbitrary stdout bytes. This removes the race where the
+                // promise resolved on import warnings etc.
+                if (!started && this.daemonReadyReceived) {
                     started = true;
+                    clearTimeout(startupTimeout);
                     resolve();
                 }
             });
 
             this.daemonProcess.stderr?.on('data', (data: Buffer) => {
-                const msg = data.toString().trim();
-                if (msg) {
-                    console.warn('[MatrixSpy] Daemon stderr:', msg);
+                const msg = data.toString();
+                stderrBuffer += msg;
+                if (msg.trim()) {
+                    console.warn('[MatrixSpy] Daemon stderr:', msg.trim());
                 }
             });
 
             this.daemonProcess.on('close', (code: number) => {
+                clearTimeout(startupTimeout);
                 this.daemonProcess = null;
+                this.daemonReadyReceived = false;
                 this.rejectAllPending(`Daemon process exited with code ${code}`);
                 if (!started) {
                     reject(new Error(`Daemon process exited with code ${code}`));
@@ -163,7 +224,9 @@ print(','.join(missing))`
             });
 
             this.daemonProcess.on('error', (error: Error) => {
+                clearTimeout(startupTimeout);
                 this.daemonProcess = null;
+                this.daemonReadyReceived = false;
                 this.rejectAllPending(`Daemon process error: ${error.message}`);
                 if (!started) {
                     reject(error);
@@ -174,17 +237,31 @@ print(','.join(missing))`
         });
     }
 
+    /** Flag set when the daemon emits its ready handshake. */
+    private daemonReadyReceived = false;
+
     private handleStdoutData(data: Buffer): void {
         this.stdoutBuffer += data.toString();
+        // Guard against unbounded buffer growth if a peer ever sends a very
+        // long line without a newline.
+        if (this.stdoutBuffer.length > PythonBridge.MAX_STDOUT_BUFFER) {
+            this.stdoutBuffer = '';
+            console.warn('[MatrixSpy] stdout buffer exceeded limit, cleared.');
+        }
         const lines = this.stdoutBuffer.split('\n');
         this.stdoutBuffer = lines.pop() || '';
 
         for (const line of lines) {
             const trimmed = line.trim();
-            if (!trimmed) continue;
+            if (!trimmed) {continue;}
 
             try {
                 const response = JSON.parse(trimmed);
+                // Recognize the daemon's ready handshake so startDaemon can resolve.
+                if (response && response.action === 'ready' && response._request_id === undefined) {
+                    this.daemonReadyReceived = true;
+                    continue;
+                }
                 this.handleResponse(response);
             } catch {
                 console.warn('[MatrixSpy] Failed to parse daemon response:', trimmed.substring(0, 200));
@@ -211,7 +288,7 @@ print(','.join(missing))`
     }
 
     private rejectAllPending(reason: string): void {
-        for (const [id, pending] of this.pendingRequests) {
+        for (const pending of this.pendingRequests.values()) {
             clearTimeout(pending.timer);
             pending.reject(createError(reason, ERROR_CODES.UNKNOWN, null, true));
         }
@@ -219,7 +296,7 @@ print(','.join(missing))`
     }
 
     private async handleCrashRecovery(): Promise<void> {
-        if (this.disposed || this.restarting) return;
+        if (this.disposed || this.restarting) {return;}
         this.restarting = true;
 
         try {
@@ -277,28 +354,30 @@ print(','.join(missing))`
         }
     }
 
-    private sendRequest(request: object): Promise<any> {
-        return new Promise(async (resolve, reject) => {
-            if (this.disposed) {
-                reject(createError('PythonBridge has been disposed', ERROR_CODES.UNKNOWN, null, false));
-                return;
-            }
+    private async sendRequest(request: object): Promise<any> {
+        if (this.disposed) {
+            throw createError('PythonBridge has been disposed', ERROR_CODES.UNKNOWN, null, false);
+        }
 
-            try {
-                await this.ensureDaemon();
-            } catch (err) {
-                reject(createError(
-                    `Failed to start daemon: ${err instanceof Error ? err.message : String(err)}`,
-                    ERROR_CODES.PYTHON_NOT_FOUND,
-                    null,
-                    true
-                ));
-                return;
-            }
+        try {
+            await this.ensureDaemon();
+        } catch (err) {
+            throw createError(
+                `Failed to start daemon: ${err instanceof Error ? err.message : String(err)}`,
+                ERROR_CODES.PYTHON_NOT_FOUND,
+                null,
+                true
+            );
+        }
 
-            const requestId = this.nextRequestId++;
-            const requestWithId = { ...request, _request_id: requestId };
+        if (this.disposed) {
+            throw createError('PythonBridge has been disposed', ERROR_CODES.UNKNOWN, null, false);
+        }
 
+        const requestId = this.nextRequestId++;
+        const requestWithId = { ...request, _request_id: requestId };
+
+        return new Promise<any>((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pendingRequests.delete(requestId);
                 reject(createError('Daemon request timeout', ERROR_CODES.TIMEOUT, null, true));
@@ -322,18 +401,45 @@ print(','.join(missing))`
         });
     }
 
+    /**
+     * Internal send that bypasses the disposed check. Used by dispose() to
+     * deliver the shutdown request before the disposed flag is set.
+     */
+    private async sendRawRequest(request: object): Promise<any> {
+        if (!this.daemonProcess || this.daemonProcess.exitCode !== null) {
+            throw new Error('Daemon not running');
+        }
+        const requestId = this.nextRequestId++;
+        const requestWithId = { ...request, _request_id: requestId };
+        return new Promise<any>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.pendingRequests.delete(requestId);
+                reject(new Error('Shutdown request timeout'));
+            }, 3000);
+            this.pendingRequests.set(requestId, { resolve, reject, timer });
+            try {
+                const line = JSON.stringify(requestWithId) + '\n';
+                this.daemonProcess!.stdin!.write(line);
+            } catch (err) {
+                this.pendingRequests.delete(requestId);
+                clearTimeout(timer);
+                reject(err);
+            }
+        });
+    }
+
     private killProcess(proc: ChildProcess | null): void {
-        if (!proc || proc.exitCode !== null) return;
+        if (!proc || proc.exitCode !== null) {return;}
 
         try {
             proc.kill('SIGTERM');
             setTimeout(() => {
                 if (proc.exitCode === null) {
-                    try { proc.kill('SIGKILL'); } catch {}
+                    try { proc.kill('SIGKILL'); } catch { void 0; }
                 }
             }, 3000);
         } catch {
-            try { proc.kill('SIGKILL'); } catch {}
+            try { proc.kill('SIGKILL'); } catch { void 0; }
         }
     }
 
@@ -348,12 +454,16 @@ print(','.join(missing))`
 
         const stats = fs.statSync(filePath);
         const fileSizeMB = stats.size / (1024 * 1024);
+        // Read the user-configurable threshold. The setting is documented as
+        // "maximum data size in number of elements"; we treat it as MB here
+        // so the gate is actually enforced (previously it was dead config).
+        const maxSizeMB = this.getMaxFileSizeMB();
 
-        if (fileSizeMB > 100) {
+        if (fileSizeMB > maxSizeMB) {
             throw createError(
-                `File too large (${fileSizeMB.toFixed(2)} MB). Maximum size is 100MB.`,
+                `File too large (${fileSizeMB.toFixed(2)} MB). Maximum size is ${maxSizeMB} MB.`,
                 ERROR_CODES.FILE_TOO_LARGE,
-                { fileSize: fileSizeMB, maxSize: 100 },
+                { fileSize: fileSizeMB, maxSize: maxSizeMB },
                 false
             );
         }
@@ -554,30 +664,50 @@ print(','.join(missing))`
     }
 
     async dispose(): Promise<void> {
-        this.disposed = true;
+        // Send shutdown BEFORE setting disposed=true, otherwise sendRequest
+        // would reject immediately and the daemon would never receive it.
         this.stopHeartbeat();
         this.onProgressCallback = null;
 
         if (this.daemonProcess && this.daemonProcess.exitCode === null) {
             try {
-                const shutdownResult = await Promise.race([
-                    this.sendRequest({ action: 'shutdown' }),
-                    new Promise<null>((_, reject) =>
-                        setTimeout(() => reject(new Error('Shutdown timeout')), 3000)
-                    )
-                ]);
+                await this.sendRawRequest({ action: 'shutdown' });
             } catch {
-                // shutdown request failed or timed out
+                // shutdown request failed or timed out — fall through to kill
             }
-
             this.killProcess(this.daemonProcess);
             this.daemonProcess = null;
         }
 
+        // Now mark disposed and reject any straggling pending requests.
+        this.disposed = true;
         this.rejectAllPending('PythonBridge disposed');
     }
 
     setProgressCallback(callback: ((progress: number, stage: string) => void) | null): void {
         this.onProgressCallback = callback;
+    }
+
+    /**
+     * Resolve the maximum allowed MAT file size in MB.
+     *
+     * Reads `matrixspy.maxFileSizeMB` (the canonical setting). For backward
+     * compatibility, if only the legacy `matrixspy.maxDataSize` is set to a
+     * non-default value, we honor it as MB. The result is clamped to
+     * [1, 4096] MB.
+     */
+    private getMaxFileSizeMB(): number {
+        const config = vscode.workspace.getConfiguration('matrixspy');
+        const primary = config.get<number>('maxFileSizeMB');
+        if (Number.isFinite(primary) && primary! >= 1) {
+            return Math.min(primary!, 4096);
+        }
+        // Fall back to legacy setting (treated as MB) if the user had
+        // customized it before the new setting existed.
+        const legacy = config.get<number>('maxDataSize');
+        if (Number.isFinite(legacy) && legacy! >= 1) {
+            return Math.min(legacy!, 4096);
+        }
+        return PythonBridge.MAX_FILE_SIZE_MB;
     }
 }

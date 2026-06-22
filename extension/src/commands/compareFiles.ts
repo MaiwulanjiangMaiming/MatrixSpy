@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as crypto from 'crypto';
+import * as nls from 'vscode-nls';
 import { getPythonBridge } from '../extension';
+
+const localize = nls.loadMessageBundle();
 
 interface CompareResult {
     success: boolean;
@@ -36,7 +40,7 @@ interface DiffDetail {
 export async function compareFilesCommand(uri?: vscode.Uri) {
     const bridge = getPythonBridge();
     if (!bridge) {
-        vscode.window.showErrorMessage('Python bridge not available. Please reload the window.');
+        vscode.window.showErrorMessage(localize('pythonBridgeUnavailable', 'Python bridge not available. Please reload the window.'));
         return;
     }
 
@@ -53,7 +57,7 @@ export async function compareFilesCommand(uri?: vscode.Uri) {
                 canSelectFolders: false,
                 canSelectMany: false,
                 filters: { 'MAT Files': ['mat'] },
-                title: 'Select first MAT file to compare'
+                title: localize('selectFirstFile', 'Select first MAT file to compare')
             });
             if (!picked || picked.length === 0) {
                 return;
@@ -67,7 +71,7 @@ export async function compareFilesCommand(uri?: vscode.Uri) {
         canSelectFolders: false,
         canSelectMany: false,
         filters: { 'MAT Files': ['mat'] },
-        title: 'Select second MAT file to compare'
+        title: localize('selectSecondFile', 'Select second MAT file to compare')
     });
 
     if (!file2Uri || file2Uri.length === 0) {
@@ -77,30 +81,26 @@ export async function compareFilesCommand(uri?: vscode.Uri) {
     const file2Path = file2Uri[0].fsPath;
 
     if (file1Path === file2Path) {
-        vscode.window.showWarningMessage('Cannot compare a file with itself. Please select a different file.');
+        vscode.window.showWarningMessage(localize('cannotCompareSelf', 'Cannot compare a file with itself. Please select a different file.'));
         return;
     }
 
     await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: 'MatrixSpy: Comparing MAT files...',
+        title: localize('comparingFiles', 'MatrixSpy: Comparing MAT files...'),
         cancellable: false
     }, async () => {
         try {
-            const result = await (bridge as any).sendRequest({
-                action: 'compare_files',
-                path1: file1Path,
-                path2: file2Path
-            }) as CompareResult;
+            const result = await bridge.compareFiles(file1Path, file2Path) as CompareResult;
 
             if (!result.success) {
-                vscode.window.showErrorMessage(`Comparison failed: ${result.error || 'Unknown error'}`);
+                vscode.window.showErrorMessage(localize('comparisonFailed', 'Comparison failed: {0}', result.error || 'Unknown error'));
                 return;
             }
 
             showComparePanel(file1Path, file2Path, result);
         } catch (error) {
-            vscode.window.showErrorMessage(`Comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+            vscode.window.showErrorMessage(localize('comparisonFailed', 'Comparison failed: {0}', error instanceof Error ? error.message : String(error)));
         }
     });
 }
@@ -123,7 +123,10 @@ function showComparePanel(file1Path: string, file2Path: string, result: CompareR
         'matrixspyCompare',
         `Compare: ${file1Name} ↔ ${file2Name}`,
         vscode.ViewColumn.One,
-        { enableScripts: true }
+        {
+            enableScripts: true,
+            localResourceRoots: []
+        }
     );
 
     panel.webview.html = getCompareHtml(file1Name, file2Name, result);
@@ -148,7 +151,10 @@ function getCompareHtml(file1Name: string, file2Name: string, result: CompareRes
     const modified = result.modified || [];
     const unchanged = result.unchanged || [];
 
-    const totalVars = deleted.length + added.length + modified.length + unchanged.length;
+    // Per-webview nonce for CSP. Variable names from MAT files are rendered
+    // in the DOM; even though they are HTML-escaped, a CSP nonce is defense-
+    // in-depth against any future escape bug becoming an XSS.
+    const nonce = crypto.randomBytes(16).toString('base64');
 
     let tableRows = '';
 
@@ -180,8 +186,9 @@ function getCompareHtml(file1Name: string, file2Name: string, result: CompareRes
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
     <title>MAT File Comparison</title>
-    <style>
+    <style nonce="${nonce}">
         body {
             font-family: var(--vscode-font-family);
             color: var(--vscode-foreground);
@@ -327,7 +334,7 @@ function getCompareHtml(file1Name: string, file2Name: string, result: CompareRes
         <div class="diff-stats" id="diffStats"></div>
     </div>
 
-    <script>
+    <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 
 function buildLUT(points) {

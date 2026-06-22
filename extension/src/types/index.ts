@@ -58,20 +58,3 @@ export interface SliceResult {
     error?: string;
     variable_name?: string;
 }
-
-export interface WebviewMessage {
-    command: string;
-    variableName?: string;
-    variableValue?: any;
-    axis?: number;
-    index?: number;
-}
-
-export interface WebviewResponse {
-    command: string;
-    data?: any;
-    error?: string;
-    success?: boolean;
-    variableName?: string;
-    retryable?: boolean;
-}

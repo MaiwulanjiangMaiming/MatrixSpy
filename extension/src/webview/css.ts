@@ -524,6 +524,12 @@ body {
 .complex-imag {
     color: var(--vscode-errorForeground);
 }
+.special-val {
+    color: #e06050;
+    font-style: italic;
+    font-weight: 600;
+    font-size: 0.85em;
+}
 .vector-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(clamp(70px, 10vw, 90px), 1fr));

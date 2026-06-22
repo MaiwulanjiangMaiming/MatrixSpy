@@ -37,7 +37,8 @@ export function getHtml(version: string): string {
                 </div>
                 <div class="header-right">
                     <span class="file-info" id="fileInfo">-</span>
-                    <button class="icon-button" id="settingsBtn" title="Settings">⚙️</button>
+                    <button class="icon-button" id="exportBtn" title="Export data (Cmd/Ctrl+Alt+E)" aria-label="Export data">📤</button>
+                    <button class="icon-button" id="settingsBtn" title="Settings" aria-label="Settings">⚙️</button>
                 </div>
             </div>
             <div class="content" id="mainContent">
@@ -100,6 +101,10 @@ export function getHtml(version: string): string {
                 <a href="#" class="support-btn" id="feedbackLink" onclick="return false;">
                     <span class="support-icon">💬</span>
                     <span>Feedback & Issues</span>
+                </a>
+                <a href="#" class="support-btn" id="contactLink" onclick="return false;">
+                    <span class="support-icon">📧</span>
+                    <span>Contact Me</span>
                 </a>
                 <div class="support-divider"></div>
                 <div class="support-note">

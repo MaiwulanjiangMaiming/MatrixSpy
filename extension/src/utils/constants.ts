@@ -4,8 +4,7 @@ export const CUSTOM_EDITOR_VIEW_TYPE = 'matrixspy.matFile';
 
 export const COMMANDS = {
     OPEN_FILE: 'matrixspy.openFile',
-    EXPORT_CSV: 'matrixspy.exportCSV',
-    EXPORT_JSON: 'matrixspy.exportJSON',
+    EXPORT: 'matrixspy.export',
     REFRESH_VARIABLES: 'matrixspy.refreshVariables',
     INSTALL_DEPS: 'matrixspy.installDeps',
     SHOW_VARIABLE: 'matrixspy.showVariable',
@@ -35,7 +34,6 @@ export const STORAGE_KEYS = {
 
 export const PYTHON_SCRIPT = 'high_perf_parser.py';
 export const PYTHON_TIMEOUT = 60000;
-export const MAX_FILE_SIZE_MB = 100;
 
 export const DATA_TYPES = {
     NDARRAY: 'ndarray',

@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as crypto from 'crypto';
 import * as nls from 'vscode-nls';
 import { MatFileEditorProvider } from './providers/CustomEditorProvider';
 import { MatVariableTreeDataProvider, setCurrentData, setCurrentWebviewPanel, showVariable } from './providers/MatVariableTreeDataProvider';
 import { PythonBridge, DependencyCheckResult } from './ipc/PythonBridge';
 import { openFileCommand } from './commands/openFile';
-import { exportCSVCommand, exportJSONCommand, exportNPYCommand, exportPNGCommand, exportHDF5Command, exportXLSXCommand } from './commands/exportData';
+import { exportCommand } from './commands/exportData';
 import { generateCodeCommand } from './commands/generateCode';
 import { installDepsCommand, testEnvironmentCommand } from './commands/walkthroughCommands';
 import { compareFilesCommand } from './commands/compareFiles';
@@ -30,7 +32,7 @@ let telemetryReporter: TelemetryReporter | null = null;
 
 export function sendTelemetry(eventName: string, properties?: Record<string, string>): void {
     const config = vscode.workspace.getConfiguration('matrixspy');
-    if (config.get('enableTelemetry', true) && telemetryReporter) {
+    if (config.get('enableTelemetry', false) && telemetryReporter) {
         telemetryReporter.sendTelemetryEvent(eventName, properties);
     }
 }
@@ -52,7 +54,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     registerEventHandlers(context);
     registerStatusBar(context);
 
-    await checkAndShowWelcome(context);
+    // Fire-and-forget: the welcome / dependency check spawns a Python
+    // process and can take a moment. Awaiting it would delay extension
+    // activation (and thus command/view availability) until that check
+    // completes. Commands and the sidebar are already registered above,
+    // so we let the check run in the background.
+    void checkAndShowWelcome(context);
 }
 
 async function checkAndShowWelcome(context: vscode.ExtensionContext): Promise<void> {
@@ -114,9 +121,30 @@ async function showSetupWizard(
 
     currentSetupPanel.webview.onDidReceiveMessage(async (message: { command?: string }) => {
         switch (message.command) {
-            case 'installDeps':
+            case 'installDeps': {
                 await installDepsCommand();
+                // Auto-test the environment once the install terminal closes,
+                // so the user doesn't have to manually click "Test Environment"
+                // after pip finishes. The listener is one-shot and only fires
+                // for terminals whose name matches the one created by
+                // installDepsCommand(), so unrelated terminals are ignored.
+                const autoTest = new Promise<void>(resolve => {
+                    const disposable = vscode.window.onDidCloseTerminal(closedTerminal => {
+                        if (closedTerminal.name === 'MatrixSpy - Install Dependencies') {
+                            disposable.dispose();
+                            resolve();
+                        }
+                    });
+                });
+                autoTest.then(async () => {
+                    const result = await testEnvironmentCommand();
+                    currentSetupPanel?.webview.postMessage({ command: 'status', payload: result });
+                    if (result.allDependenciesMet) {
+                        await context.globalState.update(WELCOME_SHOWN_KEY, true);
+                    }
+                });
                 break;
+            }
             case 'testEnvironment': {
                 const result = await testEnvironmentCommand();
                 currentSetupPanel?.webview.postMessage({ command: 'status', payload: result });
@@ -147,23 +175,46 @@ async function showSetupWizard(
 }
 
 function getSetupWizardHtml(depResult: DependencyCheckResult, isFirstLaunch: boolean): string {
-    const title = isFirstLaunch ? 'Welcome to MatrixSpy' : 'MatrixSpy Environment Setup';
+    const title = isFirstLaunch
+        ? localize('setupWizardWelcomeTitle', 'Welcome to MatrixSpy')
+        : localize('setupWizardSetupTitle', 'MatrixSpy Environment Setup');
     const intro = isFirstLaunch
-        ? 'Complete one-time environment setup so MatrixSpy can parse MAT files correctly.'
-        : 'Your environment is incomplete. Use the actions below to fix and verify dependencies.';
+        ? localize('setupWizardFirstLaunchIntro', 'Complete one-time environment setup so MatrixSpy can parse MAT files correctly.')
+        : localize('setupWizardIncompleteIntro', 'Your environment is incomplete. Use the actions below to fix and verify dependencies.');
     const status = depResult.pythonFound
         ? (depResult.allDependenciesMet
-            ? `Ready: ${depResult.pythonVersion ?? 'Python detected'} with all required packages.`
-            : `Python detected (${depResult.pythonVersion ?? 'unknown version'}), missing packages: ${depResult.missingPackages.join(', ')}`)
-        : 'Python not found. Please install Python 3.8+ or configure matrixspy.pythonPath.';
+            ? localize('setupWizardReady', 'Ready: {0} with all required packages.', depResult.pythonVersion ?? 'Python detected')
+            : localize('setupWizardMissing', 'Python detected ({0}), missing packages: {1}', depResult.pythonVersion ?? 'unknown version', depResult.missingPackages.join(', ')))
+        : localize('setupWizardPythonNotFound', 'Python not found. Please install Python 3.8+ or configure matrixspy.pythonPath.');
+
+    // Per-webview nonce for CSP. Prevents injected <script>/<style> from
+    // untrusted sources (e.g. malicious strings in package names) from
+    // executing in the webview.
+    const nonce = crypto.randomBytes(16).toString('base64');
+
+    const envStatusLabel = localize('setupWizardEnvStatusLabel', 'Environment Status');
+    const installLabel = localize('setupWizardInstall', 'Install Dependencies');
+    const testLabel = localize('setupWizardTest', 'Test Environment');
+    const settingsLabel = localize('setupWizardSettings', 'Open Python Settings');
+    const walkthroughLabel = localize('setupWizardWalkthrough', 'Open Welcome Guide');
+    const doneLabel = localize('setupWizardDone', 'Mark As Done');
+    const closeLabel = localize('setupWizardClose', 'Close');
+    // Strings used by the webview's <script> when status updates arrive.
+    const jsPythonNotFound = localize('setupWizardJsPythonNotFound', 'Python not found. Please install Python 3.8+ or configure matrixspy.pythonPath.');
+    const jsPythonDetected = localize('setupWizardJsPythonDetected', 'Python detected ({0})');
+    const jsMissingSuffix = localize('setupWizardJsMissingSuffix', ', missing packages: {0}');
+    const jsReady = localize('setupWizardJsReady', 'Ready: {0} with all required packages.');
+    const jsUnknownVersion = localize('setupWizardJsUnknownVersion', 'unknown version');
+    const jsPythonDetectedFallback = localize('setupWizardJsPythonDetectedFallback', 'Python detected');
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
     <title>MatrixSpy Setup</title>
-    <style>
+    <style nonce="${nonce}">
         body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 20px; max-width: 760px; margin: 0 auto; }
         h1 { margin-bottom: 8px; }
         .muted { color: var(--vscode-descriptionForeground); margin-bottom: 16px; }
@@ -179,18 +230,18 @@ function getSetupWizardHtml(depResult: DependencyCheckResult, isFirstLaunch: boo
     <h1>${title}</h1>
     <div class="muted">${intro}</div>
     <div class="panel">
-        <div class="label">Environment Status</div>
+        <div class="label">${envStatusLabel}</div>
         <div id="status" class="status">${status}</div>
     </div>
     <div class="actions">
-        <button id="install">Install Dependencies</button>
-        <button id="test" class="secondary">Test Environment</button>
-        <button id="settings" class="secondary">Open Python Settings</button>
-        <button id="walkthrough" class="secondary">Open Welcome Guide</button>
-        <button id="done" class="secondary">Mark As Done</button>
-        <button id="close" class="secondary">Close</button>
+        <button id="install">${installLabel}</button>
+        <button id="test" class="secondary">${testLabel}</button>
+        <button id="settings" class="secondary">${settingsLabel}</button>
+        <button id="walkthrough" class="secondary">${walkthroughLabel}</button>
+        <button id="done" class="secondary">${doneLabel}</button>
+        <button id="close" class="secondary">${closeLabel}</button>
     </div>
-    <script>
+    <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
         const statusEl = document.getElementById('status');
 
@@ -206,14 +257,15 @@ function getSetupWizardHtml(depResult: DependencyCheckResult, isFirstLaunch: boo
             if (message.command !== 'status' || !message.payload) return;
             const dep = message.payload;
             if (!dep.pythonFound) {
-                statusEl.textContent = 'Python not found. Please install Python 3.8+ or configure matrixspy.pythonPath.';
+                statusEl.textContent = ${JSON.stringify(jsPythonNotFound)};
                 return;
             }
             if (!dep.allDependenciesMet) {
-                statusEl.textContent = 'Python detected (' + (dep.pythonVersion || 'unknown version') + '), missing packages: ' + dep.missingPackages.join(', ');
+                statusEl.textContent = ${JSON.stringify(jsPythonDetected)}.replace('{0}', dep.pythonVersion || ${JSON.stringify(jsUnknownVersion)})
+                    + ${JSON.stringify(jsMissingSuffix)}.replace('{0}', dep.missingPackages.join(', '));
                 return;
             }
-            statusEl.textContent = 'Ready: ' + (dep.pythonVersion || 'Python detected') + ' with all required packages.';
+            statusEl.textContent = ${JSON.stringify(jsReady)}.replace('{0}', dep.pythonVersion || ${JSON.stringify(jsPythonDetectedFallback)});
         });
     </script>
 </body>
@@ -280,12 +332,7 @@ function registerTreeDataProvider(context: vscode.ExtensionContext): void {
 function registerCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand('matrixspy.openFile', openFileCommand),
-        vscode.commands.registerCommand('matrixspy.exportCSV', () => { exportCSVCommand(); sendTelemetry('exportComplete', { format: 'csv' }); }),
-        vscode.commands.registerCommand('matrixspy.exportJSON', () => { exportJSONCommand(); sendTelemetry('exportComplete', { format: 'json' }); }),
-        vscode.commands.registerCommand('matrixspy.exportNPY', () => { exportNPYCommand(); sendTelemetry('exportComplete', { format: 'npy' }); }),
-        vscode.commands.registerCommand('matrixspy.exportPNG', () => { exportPNGCommand(); sendTelemetry('exportComplete', { format: 'png' }); }),
-        vscode.commands.registerCommand('matrixspy.exportHDF5', () => { exportHDF5Command(); sendTelemetry('exportComplete', { format: 'hdf5' }); }),
-        vscode.commands.registerCommand('matrixspy.exportXLSX', () => { exportXLSXCommand(); sendTelemetry('exportComplete', { format: 'xlsx' }); }),
+        vscode.commands.registerCommand('matrixspy.export', () => exportCommand()),
         vscode.commands.registerCommand('matrixspy.generateCode', () => generateCodeCommand()),
         vscode.commands.registerCommand('matrixspy.refreshVariables', async () => {
             const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
@@ -347,7 +394,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 return;
             }
             const items = recent.map(f => ({
-                label: f.split('/').pop() || f.split('\\').pop() || f,
+                label: path.basename(f),
                 description: f,
                 detail: f
             }));
@@ -388,13 +435,27 @@ function registerStatusBar(context: vscode.ExtensionContext): void {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.text = '$(symbol-array) MatrixSpy';
     statusBarItem.tooltip = 'MatrixSpy: No active MAT file';
+    // Default command opens the setup wizard. Once the environment is
+    // verified ready, switch to opening a file picker so the status bar
+    // becomes a quick-launch affordance instead of a nag.
     statusBarItem.command = 'matrixspy.showSetupWizard';
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
+
+    // After the first environment check completes, update the command so
+    // clicking the status bar does the right thing based on readiness.
+    void PythonBridge.checkDependencies(
+        vscode.workspace.getConfiguration('matrixspy').get<string>('pythonPath', 'python3')
+    ).then(depResult => {
+        if (!statusBarItem) { return; }
+        statusBarItem.command = depResult.allDependenciesMet
+            ? 'matrixspy.openFile'
+            : 'matrixspy.showSetupWizard';
+    });
 }
 
 export function updateStatusBar(fileName: string | null, varCount: number, activeVar: string | null, varInfo: { shape?: number[]; dtype?: string; memory_mb?: number } | null): void {
-    if (!statusBarItem) return;
+    if (!statusBarItem) {return;}
 
     if (!fileName) {
         statusBarItem.text = '$(symbol-array) MatrixSpy';
@@ -411,10 +472,10 @@ export function updateStatusBar(fileName: string | null, varCount: number, activ
         const dtypeStr = varInfo.dtype || '';
         const memStr = varInfo.memory_mb ? `${varInfo.memory_mb.toFixed(1)} MB` : '';
         text += ` | ${activeVar}`;
-        if (shapeStr) text += ` [${shapeStr}`;
-        if (dtypeStr) text += ` ${dtypeStr}`;
-        if (memStr) text += ` | ${memStr}`;
-        if (shapeStr) text += `]`;
+        if (shapeStr) {text += ` [${shapeStr}`;}
+        if (dtypeStr) {text += ` ${dtypeStr}`;}
+        if (memStr) {text += ` | ${memStr}`;}
+        if (shapeStr) {text += `]`;}
     }
 
     statusBarItem.text = text;
@@ -454,7 +515,19 @@ export function updateCurrentWebviewPanel(panel: vscode.WebviewPanel | null): vo
     setCurrentWebviewPanel(panel);
 }
 
-export function deactivate(): Thenable<void> | undefined {
+/**
+ * Clear the global active-panel pointer only if it currently points to the
+ * given panel. This prevents a disposing panel from clobbering the pointer
+ * when another panel has already become active in the meantime.
+ */
+export function clearCurrentWebviewPanelIfMatching(panel: vscode.WebviewPanel): void {
+    if (currentWebviewPanel === panel) {
+        currentWebviewPanel = null;
+        setCurrentWebviewPanel(null);
+    }
+}
+
+export function deactivate(): Promise<void> | undefined {
     fileDataCache.clear();
     if (telemetryReporter) {
         telemetryReporter.dispose();

@@ -2,7 +2,7 @@
   "name": "matrixspy",
   "displayName": "MatrixSpy",
   "description": "A powerful VS Code extension for exploring, visualizing, and exporting MATLAB .mat files. Supports all versions (v4-v7.3), image mat data, interactive plotting, and export to CSV/JSON/NumPy. Right-click any .mat file to open!",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "publisher": "maiwulanjiangmaiming",
   "repository": {
     "type": "git",
@@ -44,34 +44,10 @@
         "category": "MatrixSpy"
       },
       {
-        "command": "matrixspy.exportCSV",
-        "title": "%command.matrixspy.exportCSV.title%",
-        "category": "MatrixSpy"
-      },
-      {
-        "command": "matrixspy.exportJSON",
-        "title": "%command.matrixspy.exportJSON.title%",
-        "category": "MatrixSpy"
-      },
-      {
-        "command": "matrixspy.exportNPY",
-        "title": "%command.matrixspy.exportNPY.title%",
-        "category": "MatrixSpy"
-      },
-      {
-        "command": "matrixspy.exportPNG",
-        "title": "%command.matrixspy.exportPNG.title%",
-        "category": "MatrixSpy"
-      },
-      {
-        "command": "matrixspy.exportHDF5",
-        "title": "%command.matrixspy.exportHDF5.title%",
-        "category": "MatrixSpy"
-      },
-      {
-        "command": "matrixspy.exportXLSX",
-        "title": "%command.matrixspy.exportXLSX.title%",
-        "category": "MatrixSpy"
+        "command": "matrixspy.export",
+        "title": "%command.matrixspy.export.title%",
+        "category": "MatrixSpy",
+        "enablement": "matrixspy:hasActiveFile"
       },
       {
         "command": "matrixspy.generateCode",
@@ -151,9 +127,56 @@
           "group": "navigation"
         }
       ],
+      "commandPalette": [
+        {
+          "command": "matrixspy.openFile"
+        },
+        {
+          "command": "matrixspy.export",
+          "when": "matrixspy:hasActiveFile"
+        },
+        {
+          "command": "matrixspy.generateCode",
+          "when": "matrixspy:hasActiveFile"
+        },
+        {
+          "command": "matrixspy.refreshVariables",
+          "when": "matrixspy:hasActiveFile"
+        },
+        {
+          "command": "matrixspy.compareFiles"
+        },
+        {
+          "command": "matrixspy.openRecent"
+        },
+        {
+          "command": "matrixspy.installDeps"
+        },
+        {
+          "command": "matrixspy.testEnvironment"
+        },
+        {
+          "command": "matrixspy.showSetupWizard"
+        },
+        {
+          "command": "matrixspy.showWelcome"
+        },
+        {
+          "command": "matrixspy.resetWelcome"
+        },
+        {
+          "command": "matrixspy.showVariable",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "matrixspy.refreshVariables",
+          "when": "view == matrixspyVariables",
+          "group": "navigation"
+        },
+        {
+          "command": "matrixspy.openRecent",
           "when": "view == matrixspyVariables",
           "group": "navigation"
         }
@@ -162,26 +185,26 @@
     "keybindings": [
       {
         "command": "matrixspy.openFile",
-        "key": "ctrl+shift+m",
-        "mac": "cmd+shift+m",
-        "when": "resourceExtname == .mat"
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m",
+        "when": "!editorReadonly"
       },
       {
-        "command": "matrixspy.exportCSV",
-        "key": "ctrl+shift+e",
-        "mac": "cmd+shift+e",
+        "command": "matrixspy.export",
+        "key": "ctrl+alt+e",
+        "mac": "cmd+alt+e",
         "when": "matrixspy:hasActiveFile"
       },
       {
         "command": "matrixspy.refreshVariables",
-        "key": "ctrl+shift+r",
-        "mac": "cmd+shift+r",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
         "when": "matrixspy:hasActiveFile"
       },
       {
         "command": "matrixspy.compareFiles",
-        "key": "ctrl+shift+d",
-        "mac": "cmd+shift+d",
+        "key": "ctrl+alt+d",
+        "mac": "cmd+alt+d",
         "when": "resourceExtname == .mat"
       }
     ],
@@ -204,14 +227,23 @@
           "default": "python3",
           "description": "%configuration.matrixspy.pythonPath.description%"
         },
+        "matrixspy.maxFileSizeMB": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 4096,
+          "description": "%configuration.matrixspy.maxFileSizeMB.description%"
+        },
         "matrixspy.maxDataSize": {
           "type": "number",
-          "default": 10000,
+          "default": 100,
+          "deprecationMessage": "%configuration.matrixspy.maxDataSize.deprecation%",
           "description": "%configuration.matrixspy.maxDataSize.description%"
         },
         "matrixspy.enableImage": {
           "type": "boolean",
           "default": true,
+          "deprecationMessage": "%configuration.matrixspy.enableImage.deprecation%",
           "description": "%configuration.matrixspy.enableImage.description%"
         },
         "matrixspy.customColormaps": {
@@ -221,7 +253,7 @@
         },
         "matrixspy.enableTelemetry": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "%configuration.matrixspy.enableTelemetry.description%"
         }
       }
@@ -275,7 +307,7 @@
           {
             "id": "export",
             "title": "Export Data",
-            "description": "Export your data in multiple formats:\n\n- **CSV**: Right-click variable → \"Export to CSV\"\n- **JSON**: Right-click variable → \"Export to JSON\"\n- **NumPy**: Use Command Palette → \"MatrixSpy: Export to NumPy\"",
+            "description": "Export your data in multiple formats:\n\n- Press **Cmd/Ctrl+Alt+E** or use Command Palette → \"MatrixSpy: Export Data\"\n- Pick a format: CSV, JSON, NumPy, PNG, HDF5, or Excel\n- Pick a variable (or export all variables as JSON)",
             "media": {
               "markdown": "media/export.md"
             }

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { PythonBridge } from '../ipc/PythonBridge';
-import { MatFileData, MatVariable } from '../types';
+import { MatFileData } from '../types';
 
 let currentData: MatFileData | null = null;
 let currentWebviewPanel: vscode.WebviewPanel | null = null;
@@ -95,13 +95,13 @@ export class MatVariableTreeDataProvider implements vscode.TreeDataProvider<MatT
     }
 
     private formatType(value: any): string {
-        if (typeof value === 'number') return 'number';
-        if (typeof value === 'string') return 'string';
-        if (value && value._type === 'complex') return 'complex';
+        if (typeof value === 'number') {return 'number';}
+        if (typeof value === 'string') {return 'string';}
+        if (value && value._type === 'complex') {return 'complex';}
         if (value && value._type === 'ndarray') {
             const shape = value.shape;
-            if (shape.length === 1) return `${shape[0]}`;
-            if (shape.length === 2) return `${shape[0]}×${shape[1]}`;
+            if (shape.length === 1) {return `${shape[0]}`;}
+            if (shape.length === 2) {return `${shape[0]}×${shape[1]}`;}
             return shape.join('×');
         }
         if (typeof value === 'object') {
@@ -112,15 +112,15 @@ export class MatVariableTreeDataProvider implements vscode.TreeDataProvider<MatT
     }
 
     private getIcon(value: any): vscode.ThemeIcon {
-        if (typeof value === 'number') return new vscode.ThemeIcon('symbol-numeric');
-        if (typeof value === 'string') return new vscode.ThemeIcon('symbol-string');
-        if (value && value._type === 'complex') return new vscode.ThemeIcon('symbol-operator');
+        if (typeof value === 'number') {return new vscode.ThemeIcon('symbol-numeric');}
+        if (typeof value === 'string') {return new vscode.ThemeIcon('symbol-string');}
+        if (value && value._type === 'complex') {return new vscode.ThemeIcon('symbol-operator');}
         if (value && value._type === 'ndarray') {
-            if (value.shape.length === 1) return new vscode.ThemeIcon('graph-line');
-            if (value.shape.length === 2) return new vscode.ThemeIcon('table');
+            if (value.shape.length === 1) {return new vscode.ThemeIcon('graph-line');}
+            if (value.shape.length === 2) {return new vscode.ThemeIcon('table');}
             return new vscode.ThemeIcon('symbol-array');
         }
-        if (typeof value === 'object') return new vscode.ThemeIcon('folder');
+        if (typeof value === 'object') {return new vscode.ThemeIcon('folder');}
         return new vscode.ThemeIcon('symbol-misc');
     }
 

@@ -54,7 +54,7 @@ All notable changes to MatrixSpy will be documented in this file.
 
 ### Added
 
-- Optional anonymous telemetry — uses `@vscode/extension-telemetry` to send anonymized usage events (file loaded, variable selected, export completed, errors). Disabled by the `matrixspy.enableTelemetry` setting (default: enabled). No data is sent if the user opts out.
+- Optional anonymous telemetry — uses `@vscode/extension-telemetry` to send anonymized usage events (file loaded, variable selected, export completed, errors). Controlled by the `matrixspy.enableTelemetry` setting (default: disabled). No data is sent unless the user explicitly opts in.
 - Centralized state management Store — new `MatViewerStore` class wraps webview state with `get`/`set`/`subscribe`/`snapshot`/`undo`/`redo`/`persist`/`restore` methods. State is persisted via `vscode.setState()` and automatically synced with the existing `state` object.
 - Undo/Redo keyboard shortcuts — `Ctrl+Z` / `Cmd+Z` to undo, `Ctrl+Shift+Z` / `Cmd+Shift+Z` to redo view state changes (display mode, colormap, axis, variable selection). Up to 50 history entries.
 

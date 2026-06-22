@@ -5,11 +5,26 @@ function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function isSpecialValue(v) { return v === 'NaN' || v === 'Inf' || v === '-Inf'; }
+function isNumericOrNull(v) { return v === null || v === undefined || typeof v === 'number'; }
+
 const VERSION = '${version}';
 const vscode = acquireVsCodeApi();
+
+// Global error handler - catches rendering errors and displays them
+window.onerror = function(msg, url, lineNo, colNo, error) {
+    console.error('[MatrixSpy] Unhandled error:', msg, 'at line', lineNo);
+    var mc = document.getElementById('mainContent');
+    if (mc) {
+        mc.innerHTML = '<div class="error" style="padding:20px;">Unexpected error: ' + escapeHtml(String(msg)) + '<br><small>Line ' + lineNo + '</small></div>';
+    }
+    return false;
+};
+
 const mainContent = document.getElementById('mainContent');
 const fileInfo = document.getElementById('fileInfo');
 const settingsBtn = document.getElementById('settingsBtn');
+const exportBtn = document.getElementById('exportBtn');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 const settingsPanel = document.getElementById('settingsPanel');
 const overlay = document.getElementById('overlay');
@@ -76,7 +91,10 @@ MatViewerStore.prototype._notify = function(key, oldVal, newVal) {
 };
 MatViewerStore.prototype.snapshot = function() {
     this._history = this._history.slice(0, this._historyIndex + 1);
-    this._history.push(JSON.parse(JSON.stringify(this._state)));
+    var fullData = this._state.fullVariableData;
+    var uiState = JSON.parse(JSON.stringify(this._state));
+    delete uiState.fullVariableData;
+    this._history.push({ ui: uiState, full: fullData });
     this._historyIndex = this._history.length - 1;
     if (this._history.length > 50) {
         this._history.shift();
@@ -86,14 +104,18 @@ MatViewerStore.prototype.snapshot = function() {
 MatViewerStore.prototype.undo = function() {
     if (this._historyIndex > 0) {
         this._historyIndex--;
-        this._state = JSON.parse(JSON.stringify(this._history[this._historyIndex]));
+        var entry = this._history[this._historyIndex];
+        this._state = JSON.parse(JSON.stringify(entry.ui));
+        this._state.fullVariableData = entry.full;
         this._notify('*', null, null);
     }
 };
 MatViewerStore.prototype.redo = function() {
     if (this._historyIndex < this._history.length - 1) {
         this._historyIndex++;
-        this._state = JSON.parse(JSON.stringify(this._history[this._historyIndex]));
+        var entry = this._history[this._historyIndex];
+        this._state = JSON.parse(JSON.stringify(entry.ui));
+        this._state.fullVariableData = entry.full;
         this._notify('*', null, null);
     }
 };
@@ -547,7 +569,12 @@ function selectTreeItem(path) {
         varInfo: varInfo
     });
 
-    mainContent.innerHTML = renderBreadcrumb() + renderPreview(parts[parts.length - 1], value);
+    try {
+        mainContent.innerHTML = renderBreadcrumb() + renderPreview(parts[parts.length - 1], value);
+    } catch(e) {
+        mainContent.innerHTML = renderBreadcrumb() + '<div class="error" style="padding:20px;">Error rendering variable: ' + escapeHtml(String(e)) + '</div>';
+        console.error('[MatrixSpy] renderPreview error:', e);
+    }
 
     initPreviewWidgets();
 
@@ -595,7 +622,9 @@ function formatFieldValue(value) {
     } else if (typeof value === 'string') {
         return '"' + escapeHtml(value) + '"';
     } else if (value && value._type === 'complex') {
-        return escapeHtml(value.real + (value.imag >= 0 ? '+' : '') + value.imag + 'i');
+        var imagNum2 = value.imag;
+        var imagNonNeg2 = (typeof imagNum2 === 'number' && imagNum2 >= 0) || imagNum2 === 'Inf';
+        return escapeHtml(String(value.real)) + (imagNonNeg2 ? '+' : '') + escapeHtml(String(value.imag)) + 'i';
     } else if (value && value._type === 'ndarray') {
         return escapeHtml('ndarray: ' + value.shape.join('\\u00D7') + ' \\u00B7 ' + value.dtype);
     } else if (typeof value === 'object' && value !== null) {
@@ -671,13 +700,47 @@ function get2DSlice(value, viewMode) {
 
     if (value.complex) {
         if (viewMode === 'magnitude') {
-            return data.map(function(row) { return row.map(function(v) { return Math.sqrt(v.real * v.real + v.imag * v.imag); }); });
+            return data.map(function(row) {
+                return row.map(function(v) {
+                    if (v && v._type === 'complex') {
+                        var r = typeof v.real === 'number' ? v.real : (v.real === 'Inf' ? Infinity : v.real === '-Inf' ? -Infinity : NaN);
+                        var i = typeof v.imag === 'number' ? v.imag : (v.imag === 'Inf' ? Infinity : v.imag === '-Inf' ? -Infinity : NaN);
+                        return Math.sqrt(r * r + i * i);
+                    }
+                    return v;
+                });
+            });
         } else if (viewMode === 'phase') {
-            return data.map(function(row) { return row.map(function(v) { return Math.atan2(v.imag, v.real); }); });
+            return data.map(function(row) {
+                return row.map(function(v) {
+                    if (v && v._type === 'complex') {
+                        var r = typeof v.real === 'number' ? v.real : (v.real === 'Inf' ? Infinity : v.real === '-Inf' ? -Infinity : NaN);
+                        var i = typeof v.imag === 'number' ? v.imag : (v.imag === 'Inf' ? Infinity : v.imag === '-Inf' ? -Infinity : NaN);
+                        return Math.atan2(i, r);
+                    }
+                    return v;
+                });
+            });
         } else if (viewMode === 'real') {
-            return data.map(function(row) { return row.map(function(v) { return v.real; }); });
+            return data.map(function(row) {
+                return row.map(function(v) {
+                    if (v && v._type === 'complex') {
+                        if (isSpecialValue(v.real)) return v.real;
+                        return v.real;
+                    }
+                    return v;
+                });
+            });
         } else if (viewMode === 'imag') {
-            return data.map(function(row) { return row.map(function(v) { return v.imag; }); });
+            return data.map(function(row) {
+                return row.map(function(v) {
+                    if (v && v._type === 'complex') {
+                        if (isSpecialValue(v.imag)) return v.imag;
+                        return v.imag;
+                    }
+                    return v;
+                });
+            });
         }
     }
     return data;
@@ -720,13 +783,47 @@ function getNDSlice(value, axis, sliceIndex, viewMode) {
 
     if (sliceData && value.complex) {
         if (viewMode === 'magnitude') {
-            return sliceData.map(function(row) { return row.map(function(v) { return Math.sqrt(v.real * v.real + v.imag * v.imag); }); });
+            return sliceData.map(function(row) {
+                return row.map(function(v) {
+                    if (v && v._type === 'complex') {
+                        var r = typeof v.real === 'number' ? v.real : (v.real === 'Inf' ? Infinity : v.real === '-Inf' ? -Infinity : NaN);
+                        var i = typeof v.imag === 'number' ? v.imag : (v.imag === 'Inf' ? Infinity : v.imag === '-Inf' ? -Infinity : NaN);
+                        return Math.sqrt(r * r + i * i);
+                    }
+                    return v;
+                });
+            });
         } else if (viewMode === 'phase') {
-            return sliceData.map(function(row) { return row.map(function(v) { return Math.atan2(v.imag, v.real); }); });
+            return sliceData.map(function(row) {
+                return row.map(function(v) {
+                    if (v && v._type === 'complex') {
+                        var r = typeof v.real === 'number' ? v.real : (v.real === 'Inf' ? Infinity : v.real === '-Inf' ? -Infinity : NaN);
+                        var i = typeof v.imag === 'number' ? v.imag : (v.imag === 'Inf' ? Infinity : v.imag === '-Inf' ? -Infinity : NaN);
+                        return Math.atan2(i, r);
+                    }
+                    return v;
+                });
+            });
         } else if (viewMode === 'real') {
-            return sliceData.map(function(row) { return row.map(function(v) { return v.real; }); });
+            return sliceData.map(function(row) {
+                return row.map(function(v) {
+                    if (v && v._type === 'complex') {
+                        if (isSpecialValue(v.real)) return v.real;
+                        return v.real;
+                    }
+                    return v;
+                });
+            });
         } else if (viewMode === 'imag') {
-            return sliceData.map(function(row) { return row.map(function(v) { return v.imag; }); });
+            return sliceData.map(function(row) {
+                return row.map(function(v) {
+                    if (v && v._type === 'complex') {
+                        if (isSpecialValue(v.imag)) return v.imag;
+                        return v.imag;
+                    }
+                    return v;
+                });
+            });
         }
     }
     return sliceData;
@@ -931,10 +1028,10 @@ function showROIStats(stats) {
     panel.style.cssText = 'position:absolute;left:' + panelLeft + 'px;top:' + top + 'px;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:6px;padding:8px 12px;font-size:12px;z-index:10;pointer-events:none;min-width:160px;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
     panel.innerHTML = '<div style="font-weight:600;margin-bottom:4px;color:var(--vscode-textLink-foreground);">ROI Stats</div>' +
         '<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-family:monospace;">' +
-        '<span style="color:var(--vscode-descriptionForeground);">Mean:</span><span>' + stats.mean.toFixed(4) + '</span>' +
-        '<span style="color:var(--vscode-descriptionForeground);">Std:</span><span>' + stats.std.toFixed(4) + '</span>' +
-        '<span style="color:var(--vscode-descriptionForeground);">Min:</span><span>' + stats.min.toFixed(4) + '</span>' +
-        '<span style="color:var(--vscode-descriptionForeground);">Max:</span><span>' + stats.max.toFixed(4) + '</span>' +
+        '<span style="color:var(--vscode-descriptionForeground);">Mean:</span><span>' + formatFixed(stats.mean, 4) + '</span>' +
+        '<span style="color:var(--vscode-descriptionForeground);">Std:</span><span>' + formatFixed(stats.std, 4) + '</span>' +
+        '<span style="color:var(--vscode-descriptionForeground);">Min:</span><span>' + formatFixed(stats.min, 4) + '</span>' +
+        '<span style="color:var(--vscode-descriptionForeground);">Max:</span><span>' + formatFixed(stats.max, 4) + '</span>' +
         '<span style="color:var(--vscode-descriptionForeground);">Count:</span><span>' + stats.count + '</span>' +
         '</div>';
 }
@@ -942,6 +1039,17 @@ function showROIStats(stats) {
 function initROIEvents() {
     var canvas = document.getElementById('imageCanvas');
     if (!canvas) return;
+    if (canvas.dataset.roiEventsInitialized) return;
+    canvas.dataset.roiEventsInitialized = 'true';
+
+    // Remove the previous document-level mouseup handler before adding a new
+    // one. Without this, every call to initROIEvents (which fires on every
+    // preview refresh) would leak a closure on 'document' that references the
+    // now-detached canvas, causing unbounded memory growth.
+    if (roiMouseUpHandler) {
+        document.removeEventListener('mouseup', roiMouseUpHandler);
+        roiMouseUpHandler = null;
+    }
 
     canvas.addEventListener('mousedown', function(e) {
         if (!state.roiState.active) return;
@@ -985,14 +1093,21 @@ function initROIEvents() {
     };
 
     canvas.addEventListener('mouseup', mouseUpHandler);
+    // Track the document-level handler so we can remove it on the next call.
+    roiMouseUpHandler = mouseUpHandler;
     document.addEventListener('mouseup', mouseUpHandler);
 }
+
+/** Tracks the document-level ROI mouseup handler so it can be cleaned up. */
+var roiMouseUpHandler = null;
 
 var heatmapTooltip = null;
 
 function initHeatmapTooltip() {
     var canvas = document.getElementById('imageCanvas');
     if (!canvas) return;
+    if (canvas.dataset.heatmapTooltipInitialized) return;
+    canvas.dataset.heatmapTooltipInitialized = 'true';
 
     if (heatmapTooltip) {
         heatmapTooltip.remove();
@@ -1030,8 +1145,13 @@ function initHeatmapTooltip() {
             var valStr;
             if (val === null || val === undefined) {
                 valStr = 'N/A';
+            } else if (isSpecialValue(val)) {
+                valStr = val;
             } else if (typeof val === 'object' && val._type === 'complex') {
-                valStr = val.real.toFixed(4) + (val.imag >= 0 ? '+' : '') + val.imag.toFixed(4) + 'i';
+                var rPart = formatFixed(val.real, 4);
+                var iPart = formatFixed(val.imag, 4);
+                var imagNonNeg = (typeof val.imag === 'number' && val.imag >= 0) || val.imag === 'Inf';
+                valStr = rPart + (imagNonNeg ? '+' : '') + iPart + 'i';
             } else if (typeof val === 'number') {
                 if (isNaN(val)) valStr = 'NaN';
                 else if (!isFinite(val)) valStr = val > 0 ? '+Inf' : '-Inf';
@@ -1112,6 +1232,9 @@ function copyToClipboard(text) {
 function initTableContextMenu() {
     var table = document.querySelector('.data-table');
     if (!table) return;
+    if (table.dataset.contextMenuInitialized) return;
+    table.dataset.contextMenuInitialized = 'true';
+
     table.addEventListener('contextmenu', function(e) {
         var td = e.target;
         while (td && td.tagName !== 'TD') { td = td.parentElement; }
@@ -1167,6 +1290,9 @@ function initTableContextMenu() {
 function initHeatmapContextMenu() {
     var canvas = document.getElementById('imageCanvas');
     if (!canvas) return;
+    if (canvas.dataset.heatmapContextMenuInitialized) return;
+    canvas.dataset.heatmapContextMenuInitialized = 'true';
+
     canvas.addEventListener('contextmenu', function(e) {
         e.preventDefault();
         var rect = canvas.getBoundingClientRect();
@@ -1181,12 +1307,16 @@ function initHeatmapContextMenu() {
         var val = (currentData && currentData[row]) ? currentData[row][col] : undefined;
         var valStr;
         if (val === null || val === undefined) valStr = 'N/A';
+        else if (isSpecialValue(val)) valStr = val;
         else if (typeof val === 'number') {
             if (isNaN(val)) valStr = 'NaN';
             else if (!isFinite(val)) valStr = val > 0 ? '+Inf' : '-Inf';
             else valStr = formatValue(val);
         } else if (typeof val === 'object' && val._type === 'complex') {
-            valStr = val.real.toFixed(4) + (val.imag >= 0 ? '+' : '') + val.imag.toFixed(4) + 'i';
+            var rPart2 = formatFixed(val.real, 4);
+            var iPart2 = formatFixed(val.imag, 4);
+            var imagNonNeg2 = (typeof val.imag === 'number' && val.imag >= 0) || val.imag === 'Inf';
+            valStr = rPart2 + (imagNonNeg2 ? '+' : '') + iPart2 + 'i';
         } else {
             valStr = String(val);
         }
@@ -1240,14 +1370,14 @@ function parseSearchCondition(expr) {
     expr = expr.trim();
     if (!expr) return null;
     var lower = expr.toLowerCase();
-    if (lower === 'nan') return function(v) { return typeof v === 'number' && isNaN(v); };
-    if (lower === 'inf' || lower === '+inf') return function(v) { return typeof v === 'number' && v === Infinity; };
-    if (lower === '-inf') return function(v) { return typeof v === 'number' && v === -Infinity; };
+    if (lower === 'nan') return function(v) { return v === 'NaN' || (typeof v === 'number' && isNaN(v)); };
+    if (lower === 'inf' || lower === '+inf') return function(v) { return v === 'Inf' || (typeof v === 'number' && v === Infinity); };
+    if (lower === '-inf') return function(v) { return v === '-Inf' || (typeof v === 'number' && v === -Infinity); };
     if (lower === 'negative' || lower === '<0') return function(v) { return typeof v === 'number' && v < 0 && isFinite(v); };
     if (lower === 'positive' || lower === '>0') return function(v) { return typeof v === 'number' && v > 0 && isFinite(v); };
     if (lower === 'zero' || lower === '==0') return function(v) { return v === 0; };
 
-    var m = expr.match(/^(>|>=|<|<=|==|!=|=)\s*(.+)$/);
+    var m = expr.match(/^(>|>=|<|<=|==|!=|=) *(.+)$/);
     if (m) {
         var op = m[1];
         var val = parseFloat(m[2]);
@@ -1431,6 +1561,7 @@ function showFullHistogram() {
 function drawFullHistogramSVG(data, stats, numBins, logY) {
     var container = document.getElementById('fhSvgContainer');
     if (!container) return;
+    if (!stats || stats.min === null || stats.max === null || typeof stats.min !== 'number' || typeof stats.max !== 'number') return;
 
     var min = stats.min;
     var max = stats.max;
@@ -1597,15 +1728,21 @@ var RENDER_WORKER_CODE = [
     '    for (var y = 0; y < height; y++) {',
     '        for (var x = 0; x < width; x++) {',
     '            var val = data[y][x];',
-    '            var norm = val !== null && val !== undefined ? (val - windowMin) / windowRange : 0;',
-    '            norm = Math.max(0, Math.min(1, norm));',
-    '            var idx = Math.min(255, Math.max(0, Math.round(norm * 255)));',
-    '            var rgb = lut[idx];',
     '            var pidx = (y * width + x) * 4;',
-    '            pixels[pidx] = rgb[0];',
-    '            pixels[pidx + 1] = rgb[1];',
-    '            pixels[pidx + 2] = rgb[2];',
-    '            pixels[pidx + 3] = 255;',
+    '            if (val === "NaN" || (typeof val === "number" && isNaN(val))) {',
+    '                pixels[pidx] = 180; pixels[pidx+1] = 60; pixels[pidx+2] = 60; pixels[pidx+3] = 200;',
+    '            } else if (val === "Inf" || val === "-Inf" || (typeof val === "number" && !isFinite(val))) {',
+    '                pixels[pidx] = 60; pixels[pidx+1] = 60; pixels[pidx+2] = 180; pixels[pidx+3] = 200;',
+    '            } else {',
+    '                var norm = typeof val === "number" ? (val - windowMin) / windowRange : 0;',
+    '                norm = Math.max(0, Math.min(1, norm));',
+    '                var idx = Math.min(255, Math.max(0, Math.round(norm * 255)));',
+    '                var rgb = lut[idx];',
+    '                pixels[pidx] = rgb[0];',
+    '                pixels[pidx + 1] = rgb[1];',
+    '                pixels[pidx + 2] = rgb[2];',
+    '                pixels[pidx + 3] = 255;',
+    '            }',
     '        }',
     '    }',
     '    self.postMessage({pixels: pixels, width: width, height: height}, [buf]);',
@@ -1634,14 +1771,17 @@ function createRenderWorker() {
                 for (var y = 0; y < currentData.length; y++) {
                     for (var x = 0; x < currentData[y].length; x++) {
                         var v = currentData[y][x];
-                        if (v !== null && v !== undefined) {
+                        if (typeof v === 'number' && isFinite(v)) {
                             if (v < min) min = v;
                             if (v > max) max = v;
                         }
                     }
                 }
             }
-            renderColorbar(colormap, min === Infinity ? 0 : min, max === -Infinity ? 1 : max);
+            if (min === Infinity || max === -Infinity) {
+                min = 0; max = 1;
+            }
+            renderColorbar(colormap, min, max);
         };
         worker.onerror = function() {
             renderWorkerInstance = null;
@@ -1697,11 +1837,16 @@ function renderImageToCanvasFallback(data) {
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
             var val = data[y][x];
-            if (val !== null && val !== undefined) {
+            if (typeof val === 'number' && isFinite(val)) {
                 if (val < min) min = val;
                 if (val > max) max = val;
             }
         }
+    }
+
+    // If no finite values exist, use 0-1 as default range
+    if (min === Infinity || max === -Infinity) {
+        min = 0; max = 1;
     }
 
     var range = max - min || 1;
@@ -1713,6 +1858,10 @@ function renderImageToCanvasFallback(data) {
     var windowMax = windowCenter + windowHalf;
     var windowRange = windowMax - windowMin || 1;
 
+    // Special pixel colors for NaN / Inf values
+    var NAN_COLOR  = [180, 60, 60, 200];   // muted red
+    var INF_COLOR  = [60, 60, 180, 200];    // muted blue
+
     if (totalElements > 1000000) {
         var currentRow = 0;
         var CHUNK_SIZE = 100;
@@ -1722,14 +1871,26 @@ function renderImageToCanvasFallback(data) {
             for (var cy = currentRow; cy < endRow; cy++) {
                 for (var cx = 0; cx < width; cx++) {
                     var cval = data[cy][cx];
-                    var cnorm = cval !== null && cval !== undefined ? (cval - windowMin) / windowRange : 0;
-                    cnorm = Math.max(0, Math.min(1, cnorm));
-                    var crgb = colormap(cnorm);
                     var cidx = (cy * width + cx) * 4;
-                    imageData.data[cidx] = crgb[0];
-                    imageData.data[cidx + 1] = crgb[1];
-                    imageData.data[cidx + 2] = crgb[2];
-                    imageData.data[cidx + 3] = 255;
+                    if (cval === 'NaN' || (typeof cval === 'number' && isNaN(cval))) {
+                        imageData.data[cidx] = NAN_COLOR[0];
+                        imageData.data[cidx + 1] = NAN_COLOR[1];
+                        imageData.data[cidx + 2] = NAN_COLOR[2];
+                        imageData.data[cidx + 3] = NAN_COLOR[3];
+                    } else if (cval === 'Inf' || cval === '-Inf' || (typeof cval === 'number' && !isFinite(cval))) {
+                        imageData.data[cidx] = INF_COLOR[0];
+                        imageData.data[cidx + 1] = INF_COLOR[1];
+                        imageData.data[cidx + 2] = INF_COLOR[2];
+                        imageData.data[cidx + 3] = INF_COLOR[3];
+                    } else {
+                        var cnorm = typeof cval === 'number' ? (cval - windowMin) / windowRange : 0;
+                        cnorm = Math.max(0, Math.min(1, cnorm));
+                        var crgb = colormap(cnorm);
+                        imageData.data[cidx] = crgb[0];
+                        imageData.data[cidx + 1] = crgb[1];
+                        imageData.data[cidx + 2] = crgb[2];
+                        imageData.data[cidx + 3] = 255;
+                    }
                 }
             }
             currentRow = endRow;
@@ -1747,14 +1908,26 @@ function renderImageToCanvasFallback(data) {
         for (var ny = 0; ny < height; ny++) {
             for (var nx = 0; nx < width; nx++) {
                 var nval = data[ny][nx];
-                var nnorm = nval !== null && nval !== undefined ? (nval - windowMin) / windowRange : 0;
-                nnorm = Math.max(0, Math.min(1, nnorm));
-                var nrgb = colormap(nnorm);
                 var nidx = (ny * width + nx) * 4;
-                imageData.data[nidx] = nrgb[0];
-                imageData.data[nidx + 1] = nrgb[1];
-                imageData.data[nidx + 2] = nrgb[2];
-                imageData.data[nidx + 3] = 255;
+                if (nval === 'NaN' || (typeof nval === 'number' && isNaN(nval))) {
+                    imageData.data[nidx] = NAN_COLOR[0];
+                    imageData.data[nidx + 1] = NAN_COLOR[1];
+                    imageData.data[nidx + 2] = NAN_COLOR[2];
+                    imageData.data[nidx + 3] = NAN_COLOR[3];
+                } else if (nval === 'Inf' || nval === '-Inf' || (typeof nval === 'number' && !isFinite(nval))) {
+                    imageData.data[nidx] = INF_COLOR[0];
+                    imageData.data[nidx + 1] = INF_COLOR[1];
+                    imageData.data[nidx + 2] = INF_COLOR[2];
+                    imageData.data[nidx + 3] = INF_COLOR[3];
+                } else {
+                    var nnorm = typeof nval === 'number' ? (nval - windowMin) / windowRange : 0;
+                    nnorm = Math.max(0, Math.min(1, nnorm));
+                    var nrgb = colormap(nnorm);
+                    imageData.data[nidx] = nrgb[0];
+                    imageData.data[nidx + 1] = nrgb[1];
+                    imageData.data[nidx + 2] = nrgb[2];
+                    imageData.data[nidx + 3] = 255;
+                }
             }
         }
         requestAnimationFrame(function() {
@@ -1807,11 +1980,16 @@ function renderImageToCanvas(data) {
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
                 var val = data[y][x];
-                if (val !== null && val !== undefined) {
+                if (typeof val === 'number' && isFinite(val)) {
                     if (val < min) min = val;
                     if (val > max) max = val;
                 }
             }
+        }
+
+        // If no finite values exist, use 0-1 as default range
+        if (min === Infinity || max === -Infinity) {
+            min = 0; max = 1;
         }
 
         var colormap = COLORMAPS[state.currentColormap] || COLORMAPS.grayscale;
@@ -1895,15 +2073,35 @@ function renderColorbar(colormap, min, max) {
 }
 
 function formatValue(v) {
+    if (v === null || v === undefined) return 'N/A';
+    if (isSpecialValue(v)) return v;
+    if (typeof v !== 'number') return escapeHtml(String(v));
+    if (isNaN(v)) return 'NaN';
+    if (!isFinite(v)) return v > 0 ? '+Inf' : '-Inf';
     if (Math.abs(v) >= 1e6 || (Math.abs(v) < 0.001 && v !== 0)) {
         return v.toExponential(2);
     }
     return v.toFixed(4);
 }
 
+function formatFixed(v, digits) {
+    if (v === null || v === undefined) return 'N/A';
+    if (isSpecialValue(v)) return v;
+    if (typeof v !== 'number') return escapeHtml(String(v));
+    if (isNaN(v)) return 'NaN';
+    if (!isFinite(v)) return v > 0 ? '+Inf' : '-Inf';
+    return v.toFixed(digits);
+}
+
+function formatFixedHtml(v, digits) {
+    var s = formatFixed(v, digits);
+    return isSpecialValue(s) ? '<span class="special-val">' + s + '</span>' : s;
+}
+
 function renderMiniHistogram(stats) {
     var container = document.getElementById('miniHistogramContainer');
     if (!container || !stats.percentiles) return;
+    if (stats.min === null || stats.max === null || typeof stats.min !== 'number' || typeof stats.max !== 'number') return;
 
     var p = stats.percentiles;
     var min = stats.min;
@@ -2017,22 +2215,38 @@ function renderSparkline(data) {
     var height = 16;
     var padding = 1;
 
-    var min = Infinity, max = -Infinity;
+    var values = [];
     for (var i = 0; i < data.length; i++) {
-        var v = typeof data[i] === 'number' ? data[i] : (data[i] && data[i].real !== undefined ? data[i].real : 0);
-        if (v < min) min = v;
-        if (v > max) max = v;
+        var raw = data[i];
+        var v = typeof raw === 'number' ? raw : (raw && raw.real !== undefined ? raw.real : NaN);
+        values.push(v);
     }
 
+    var min = Infinity, max = -Infinity;
+    for (var j = 0; j < values.length; j++) {
+        var fv = values[j];
+        if (typeof fv === 'number' && isFinite(fv)) {
+            if (fv < min) min = fv;
+            if (fv > max) max = fv;
+        }
+    }
+    if (!isFinite(min)) { min = 0; max = 1; }
+
     var range = max - min || 1;
-    var step = (width - 2 * padding) / (data.length - 1 || 1);
+    var step = (width - 2 * padding) / (values.length - 1 || 1);
 
     var points = '';
-    for (var si = 0; si < data.length; si++) {
-        var sv = typeof data[si] === 'number' ? data[si] : (data[si] && data[si].real !== undefined ? data[si].real : 0);
+    var moveNext = true;
+    for (var si = 0; si < values.length; si++) {
+        var sv = values[si];
+        if (typeof sv !== 'number' || !isFinite(sv)) {
+            moveNext = true;
+            continue;
+        }
         var sx = padding + si * step;
         var sy = height - padding - ((sv - min) / range) * (height - 2 * padding);
-        points += (si === 0 ? 'M' : 'L') + sx.toFixed(1) + ' ' + sy.toFixed(1);
+        points += (moveNext ? 'M' : 'L') + sx.toFixed(1) + ' ' + sy.toFixed(1);
+        moveNext = false;
     }
 
     return '<svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg">' +
@@ -2070,10 +2284,12 @@ function render1DArray(value) {
         html += '<div class="vector-item">';
         html += '<div class="vector-index">[' + i + ']</div>';
         if (v && v._type === 'complex') {
-            html += '<div><span class="complex-real">' + v.real.toFixed(3) + '</span></div>';
-            html += '<div><span class="complex-imag">' + v.imag.toFixed(3) + 'i</span></div>';
+            html += '<div><span class="complex-real">' + formatFixedHtml(v.real, 3) + '</span></div>';
+            html += '<div><span class="complex-imag">' + formatFixedHtml(v.imag, 3) + 'i</span></div>';
+        } else if (isSpecialValue(v)) {
+            html += '<div class="special-val">' + v + '</div>';
         } else if (typeof v === 'number') {
-            html += '<div>' + v.toFixed(4) + '</div>';
+            html += '<div>' + formatFixedHtml(v, 4) + '</div>';
         } else if (v === null || v === undefined) {
             html += '<div>null</div>';
         } else {
@@ -2101,18 +2317,30 @@ function render1DLineChart(value) {
     for (var i = 0; i < data.length; i++) {
         var v = data[i];
         if (v && v._type === 'complex') {
-            numericData.push(Math.sqrt(v.real * v.real + v.imag * v.imag));
+            var cr = typeof v.real === 'number' ? v.real : NaN;
+            var ci = typeof v.imag === 'number' ? v.imag : NaN;
+            numericData.push(Math.sqrt(cr * cr + ci * ci));
         } else if (typeof v === 'number') {
             numericData.push(v);
         } else {
-            numericData.push(0);
+            numericData.push(NaN);
         }
     }
 
+    var finitePoints = [];
+    for (var fi = 0; fi < numericData.length; fi++) {
+        if (typeof numericData[fi] === 'number' && isFinite(numericData[fi])) {
+            finitePoints.push({ idx: fi, val: numericData[fi] });
+        }
+    }
+    if (finitePoints.length === 0) {
+        return '<div style="padding: 20px; text-align: center; color: var(--vscode-descriptionForeground);">No finite values to plot</div>';
+    }
+
     var minVal = Infinity, maxVal = -Infinity;
-    for (var mi = 0; mi < numericData.length; mi++) {
-        if (numericData[mi] < minVal) minVal = numericData[mi];
-        if (numericData[mi] > maxVal) maxVal = numericData[mi];
+    for (var mi = 0; mi < finitePoints.length; mi++) {
+        if (finitePoints[mi].val < minVal) minVal = finitePoints[mi].val;
+        if (finitePoints[mi].val > maxVal) maxVal = finitePoints[mi].val;
     }
     var valRange = maxVal - minVal || 1;
     var valPadding = valRange * 0.05;
@@ -2139,11 +2367,18 @@ function render1DLineChart(value) {
         sampledIndices.push(numericData.length - 1);
     }
 
+    var moveNext = true;
     for (var pi = 0; pi < sampledIndices.length; pi++) {
         var idx = sampledIndices[pi];
+        var nv = numericData[idx];
+        if (typeof nv !== 'number' || !isFinite(nv)) {
+            moveNext = true;
+            continue;
+        }
         var px = padL + (idx / Math.max(1, numericData.length - 1)) * plotW;
-        var py = padT + plotH - ((numericData[idx] - minVal) / valRange) * plotH;
-        points += (pi === 0 ? 'M' : 'L') + px.toFixed(2) + ' ' + py.toFixed(2);
+        var py = padT + plotH - ((nv - minVal) / valRange) * plotH;
+        points += (moveNext ? 'M' : 'L') + px.toFixed(2) + ' ' + py.toFixed(2);
+        moveNext = false;
     }
 
     var areaPath = points + ' L' + padL + ' ' + (padT + plotH) + ' L' + (padL + plotW) + ' ' + (padT + plotH) + ' Z';
@@ -2153,7 +2388,7 @@ function render1DLineChart(value) {
     for (var yi = 0; yi <= numYTicks; yi++) {
         var yy = padT + plotH - (yi / numYTicks) * plotH;
         var tickVal = minVal + (yi / numYTicks) * valRange;
-        yTickLabels += '<text x="' + (padL - 1) + '" y="' + (yy + 1.2) + '" text-anchor="end" font-size="2.5" fill="var(--vscode-descriptionForeground)" font-family="monospace">' + tickVal.toFixed(2) + '</text>';
+        yTickLabels += '<text x="' + (padL - 1) + '" y="' + (yy + 1.2) + '" text-anchor="end" font-size="2.5" fill="var(--vscode-descriptionForeground)" font-family="monospace">' + formatValue(tickVal) + '</text>';
         yTickLabels += '<line x1="' + padL + '" y1="' + yy + '" x2="' + (padL + plotW) + '" y2="' + yy + '" stroke="var(--vscode-panel-border)" stroke-width="0.15" stroke-dasharray="0.8,0.8" />';
     }
 
@@ -2185,10 +2420,18 @@ function initLineChart() {
     var dataEl = document.getElementById('lineChartData');
     if (!dataEl) return;
 
-    var data = JSON.parse(dataEl.textContent);
+    var data;
+    try {
+        data = JSON.parse(dataEl.textContent);
+    } catch (e) {
+        console.error('[MatrixSpy] Failed to parse lineChartData:', e);
+        return;
+    }
     var svg = document.querySelector('.line-chart-svg');
     var tooltip = document.getElementById('svgChartTooltip');
     if (!svg || !tooltip) return;
+    if (svg.dataset.lineChartInitialized) return;
+    svg.dataset.lineChartInitialized = 'true';
 
     var svgW = 100;
     var svgH = 50;
@@ -2214,7 +2457,7 @@ function initLineChart() {
         var val = data[dataIdx];
 
         tooltip.style.display = 'block';
-        tooltip.innerHTML = '<span class="tt-idx">[' + dataIdx + ']</span> <span class="tt-val">' + (typeof val === 'number' ? val.toFixed(6) : val) + '</span>';
+        tooltip.innerHTML = '<span class="tt-idx">[' + dataIdx + ']</span> <span class="tt-val">' + formatFixed(val, 6) + '</span>';
 
         var ttX = e.clientX - rect.left + 10;
         var ttY = e.clientY - rect.top - 30;
@@ -2329,11 +2572,19 @@ function render2DTableVirtual(value) {
 function initVirtualTable2D() {
     var wrapper = document.getElementById('virtualTable2D');
     if (!wrapper) return;
+    if (wrapper.dataset.virtualTableInitialized) return;
+    wrapper.dataset.virtualTableInitialized = 'true';
 
     var dataEl = document.getElementById('virtualTable2DData');
     if (!dataEl) return;
 
-    var config = JSON.parse(dataEl.textContent);
+    var config;
+    try {
+        config = JSON.parse(dataEl.textContent);
+    } catch (e) {
+        console.error('[MatrixSpy] Failed to parse virtualTable2DData:', e);
+        return;
+    }
     var value = state.fullVariableData;
     if (!value || !value.data) return;
 
@@ -2430,11 +2681,19 @@ function render3DTableVirtual(value) {
 function initVirtualTable3D() {
     var wrapper = document.getElementById('virtualTable3D');
     if (!wrapper) return;
+    if (wrapper.dataset.virtualTableInitialized) return;
+    wrapper.dataset.virtualTableInitialized = 'true';
 
     var dataEl = document.getElementById('virtualTable3DData');
     if (!dataEl) return;
 
-    var config = JSON.parse(dataEl.textContent);
+    var config;
+    try {
+        config = JSON.parse(dataEl.textContent);
+    } catch (e) {
+        console.error('[MatrixSpy] Failed to parse virtualTable3DData:', e);
+        return;
+    }
     var value = state.fullVariableData;
     if (!value) return;
 
@@ -2489,10 +2748,13 @@ function initVirtualTable3D() {
 
 function formatTableCell(v) {
     if (v === null || v === undefined) return '';
+    if (isSpecialValue(v)) return '<span class="special-val">' + v + '</span>';
     if (v && v._type === 'complex') {
-        return '<div class="complex-cell"><span class="complex-real">' + v.real.toFixed(4) + '</span><span class="complex-imag">' + v.imag.toFixed(4) + 'i</span></div>';
+        var rStr = formatFixedHtml(v.real, 4);
+        var iStr = formatFixedHtml(v.imag, 4);
+        return '<div class="complex-cell"><span class="complex-real">' + rStr + '</span><span class="complex-imag">' + iStr + 'i</span></div>';
     }
-    if (typeof v === 'number') return v.toFixed(4);
+    if (typeof v === 'number') return formatFixedHtml(v, 4);
     return escapeHtml(String(v));
 }
 
@@ -2638,7 +2900,7 @@ function render2DArray(name, value) {
 
         html += '<div class="view-mode-selector">' +
             '<label>Colormap:</label>' +
-            '<select data-action="setColormap">' +
+            '<select id="colormapSelect" data-action="setColormap">' +
             '<option value="grayscale"' + (state.currentColormap === 'grayscale' ? ' selected' : '') + '>Grayscale</option>' +
             '<option value="viridis"' + (state.currentColormap === 'viridis' ? ' selected' : '') + '>Viridis</option>' +
             '<option value="inferno"' + (state.currentColormap === 'inferno' ? ' selected' : '') + '>Inferno</option>' +
@@ -2756,7 +3018,7 @@ function renderNDArray(name, value) {
         }
 
         html += '<label>Colormap:</label>' +
-            '<select data-action="setColormap">' +
+            '<select id="colormapSelect" data-action="setColormap">' +
             '<option value="grayscale"' + (state.currentColormap === 'grayscale' ? ' selected' : '') + '>Grayscale</option>' +
             '<option value="viridis"' + (state.currentColormap === 'viridis' ? ' selected' : '') + '>Viridis</option>' +
             '<option value="inferno"' + (state.currentColormap === 'inferno' ? ' selected' : '') + '>Inferno</option>' +
@@ -2863,6 +3125,16 @@ function renderNDArray(name, value) {
 }
 
 function renderPreview(name, value) {
+    if (value && value.error) {
+        return '<div class="variable-preview">' +
+            '<div class="preview-header">' +
+            '<div class="preview-title">' + escapeHtml(name) + '</div>' +
+            '</div>' +
+            '<div class="preview-content">' +
+            '<div class="error" style="padding:16px;">' + escapeHtml(String(value.error)) + '</div>' +
+            '</div>' +
+            '</div>';
+    }
     if (typeof value === 'number') {
         return '<div class="variable-preview">' +
             '<div class="preview-header">' +
@@ -2871,6 +3143,16 @@ function renderPreview(name, value) {
             '</div>' +
             '<div class="preview-content">' +
             '<div class="scalar-value">' + value + '</div>' +
+            '</div>' +
+            '</div>';
+    } else if (isSpecialValue(value)) {
+        return '<div class="variable-preview">' +
+            '<div class="preview-header">' +
+            '<div class="preview-title">' + escapeHtml(name) + '</div>' +
+            '<div class="preview-meta">Special Value</div>' +
+            '</div>' +
+            '<div class="preview-content">' +
+            '<div class="scalar-value special-val">' + value + '</div>' +
             '</div>' +
             '</div>';
     } else if (typeof value === 'string') {
@@ -2893,11 +3175,11 @@ function renderPreview(name, value) {
             '<div class="complex-view">' +
             '<div class="complex-part">' +
             '<div class="complex-label">Real</div>' +
-            '<div class="complex-value" style="color: var(--vscode-textLink-foreground);">' + value.real + '</div>' +
+            '<div class="complex-value" style="color: var(--vscode-textLink-foreground);">' + escapeHtml(String(value.real)) + '</div>' +
             '</div>' +
             '<div class="complex-part">' +
             '<div class="complex-label">Imaginary</div>' +
-            '<div class="complex-value" style="color: var(--vscode-errorForeground);">' + value.imag + 'i</div>' +
+            '<div class="complex-value" style="color: var(--vscode-errorForeground);">' + escapeHtml(String(value.imag)) + 'i</div>' +
             '</div>' +
             '</div>' +
             '</div>' +
@@ -3087,6 +3369,7 @@ function updateWindowLevel() {
 }
 
 function handleFileLoaded(message) {
+    try {
     var matData = message.data;
 
     if (!matData.success || !matData.data) {
@@ -3132,6 +3415,10 @@ function handleFileLoaded(message) {
     html += '</div>';
 
     mainContent.innerHTML = html;
+    } catch(e) {
+        mainContent.innerHTML = '<div class="error" style="padding:20px;">Error loading file: ' + escapeHtml(String(e)) + '</div>';
+        console.error('[MatrixSpy] handleFileLoaded error:', e);
+    }
 }
 
 function handleSliceLoaded(message) {
@@ -3271,6 +3558,7 @@ function requestSliceFromBackend(ax, idx) {
 }
 
 document.addEventListener('click', function(e) {
+    if (!(e.target instanceof Element)) return;
     var target = e.target.closest('[data-action]');
     if (!target) return;
 
@@ -3335,6 +3623,7 @@ document.addEventListener('click', function(e) {
 });
 
 document.addEventListener('change', function(e) {
+    if (!(e.target instanceof Element)) return;
     var target = e.target.closest('[data-action]');
     if (!target) return;
 
@@ -3351,6 +3640,7 @@ document.addEventListener('change', function(e) {
 });
 
 document.addEventListener('input', function(e) {
+    if (!(e.target instanceof Element)) return;
     var target = e.target.closest('[data-action]');
     if (!target) return;
 
@@ -3360,12 +3650,23 @@ document.addEventListener('input', function(e) {
         case 'updateSlice':
             updateSlice(target.value);
             break;
+        case 'windowLevel':
+        case 'windowWidth':
+            updateWindowLevel();
+            break;
     }
 });
 
-settingsBtn.addEventListener('click', openSettings);
-closeSettingsBtn.addEventListener('click', closeSettings);
-overlay.addEventListener('click', closeSettings);
+settingsBtn && settingsBtn.addEventListener('click', openSettings);
+exportBtn && exportBtn.addEventListener('click', function() {
+    // Delegate to the extension host, which runs the unified export
+    // command (format + variable + save dialog). This keeps the webview
+    // free of file-system concerns and reuses the same code path as the
+    // command palette / keybinding.
+    vscode.postMessage({ command: 'exportData' });
+});
+closeSettingsBtn && closeSettingsBtn.addEventListener('click', closeSettings);
+overlay && overlay.addEventListener('click', closeSettings);
 
 var currentTheme = localStorage.getItem('matViewerTheme') || 'auto';
 
@@ -3423,22 +3724,27 @@ document.addEventListener('click', function(e) {
     }
 });
 
-sidebarToggle.addEventListener('click', toggleSidebar);
-headerToggle.addEventListener('click', toggleSidebar);
+sidebarToggle && sidebarToggle.addEventListener('click', toggleSidebar);
+headerToggle && headerToggle.addEventListener('click', toggleSidebar);
 
-githubLink.addEventListener('click', function() {
+githubLink && githubLink.addEventListener('click', function() {
     vscode.postMessage({ command: 'openExternal', url: 'https://github.com/MaiwulanjiangMaiming/MatrixSpy' });
 });
 
 var starLink = document.getElementById('starLink');
 var feedbackLink = document.getElementById('feedbackLink');
 
-starLink.addEventListener('click', function() {
+starLink && starLink.addEventListener('click', function() {
     vscode.postMessage({ command: 'openExternal', url: 'https://github.com/MaiwulanjiangMaiming/MatrixSpy' });
 });
 
-feedbackLink.addEventListener('click', function() {
+feedbackLink && feedbackLink.addEventListener('click', function() {
     vscode.postMessage({ command: 'openExternal', url: 'https://github.com/MaiwulanjiangMaiming/MatrixSpy/issues' });
+});
+
+var contactLink = document.getElementById('contactLink');
+contactLink && contactLink.addEventListener('click', function() {
+    vscode.postMessage({ command: 'openExternal', url: 'mailto:mawlan.momin@gmail.com?subject=MatrixSpy%20Feedback' });
 });
 
 var savedSidebarCollapsed = localStorage.getItem('matViewerSidebarCollapsed');
@@ -3450,11 +3756,17 @@ if (savedSidebarCollapsed === 'true') {
 
 var sidebarSearch = document.getElementById('sidebarSearch');
 if (sidebarSearch) {
+    // Debounce sidebar search to avoid rebuilding the entire sidebar DOM on
+    // every keystroke, which is janky for MAT files with hundreds of vars.
+    var sidebarSearchTimer = null;
     sidebarSearch.addEventListener('input', function(e) {
         var filterText = e.target.value;
-        if (state.currentFileData) {
-            renderSidebar(state.currentFileData, filterText);
-        }
+        if (sidebarSearchTimer) clearTimeout(sidebarSearchTimer);
+        sidebarSearchTimer = setTimeout(function() {
+            if (state.currentFileData) {
+                renderSidebar(state.currentFileData, filterText);
+            }
+        }, 150);
     });
 }
 
@@ -3477,7 +3789,7 @@ function switchDisplayMode() {
 }
 
 document.addEventListener('keydown', function(e) {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
     if (settingsPanel.classList.contains('open')) return;
 
     var handled = false;

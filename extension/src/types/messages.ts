@@ -1,7 +1,8 @@
 export type WebviewToExtension =
     | { command: 'loadSlice'; variableName: string; axis: number; index: number }
     | { command: 'variableSelected'; variableName: string; varInfo: { shape?: number[]; dtype?: string; memory_mb?: number } | null }
-    | { command: 'openExternal'; url: string };
+    | { command: 'openExternal'; url: string }
+    | { command: 'exportData' };
 
 export type ExtensionToWebview =
     | { command: 'fileLoaded'; data: any }

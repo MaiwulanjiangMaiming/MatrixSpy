@@ -1,11 +1,6 @@
 {
   "command.matrixspy.openFile.title": "打开 MAT 文件",
-  "command.matrixspy.exportCSV.title": "导出为 CSV",
-  "command.matrixspy.exportJSON.title": "导出为 JSON",
-  "command.matrixspy.exportNPY.title": "导出为 NumPy (NPY)",
-  "command.matrixspy.exportPNG.title": "导出为 PNG 图片",
-  "command.matrixspy.exportHDF5.title": "导出为 HDF5",
-  "command.matrixspy.exportXLSX.title": "导出为 Excel (XLSX)",
+  "command.matrixspy.export.title": "导出数据",
   "command.matrixspy.generateCode.title": "生成 Python 代码",
   "command.matrixspy.refreshVariables.title": "刷新变量",
   "command.matrixspy.installDeps.title": "安装 Python 依赖",
@@ -16,8 +11,11 @@
   "command.matrixspy.compareFiles.title": "与...比较",
   "command.matrixspy.openRecent.title": "打开最近的 MAT 文件",
   "configuration.matrixspy.pythonPath.description": "Python 可执行文件路径",
-  "configuration.matrixspy.maxDataSize.description": "最大加载数据大小（元素数量）",
-  "configuration.matrixspy.enableImage.description": "启用图像 MAT 数据专用功能",
+  "configuration.matrixspy.maxFileSizeMB.description": "允许加载的 MAT 文件最大大小（MB）。超过此大小的文件会被拒绝并给出明确错误。范围：1–4096 MB。",
+  "configuration.matrixspy.maxDataSize.description": "已弃用：请改用 matrixspy.maxFileSizeMB。此设置以前用于控制最大文件大小（MB）。",
+  "configuration.matrixspy.maxDataSize.deprecation": "请改用 matrixspy.maxFileSizeMB。此设置仅为向后兼容保留，将在未来版本中移除。",
+  "configuration.matrixspy.enableImage.description": "已弃用：此设置无效。图像 MAT 数据功能始终启用。",
+  "configuration.matrixspy.enableImage.deprecation": "此设置无效，仅为向后兼容保留。图像 MAT 数据功能始终启用，将在未来版本中移除。",
   "configuration.matrixspy.customColormaps.description": "自定义色图，以关键点数组定义。每个色图是 [position, r, g, b] 元组的数组，其中 position 为 0.0-1.0，r、g、b 为 0-255。示例：{\"myCmap\": [[0, 0, 0, 0], [0.5, 255, 0, 0], [1.0, 255, 255, 255]]}",
   "configuration.matrixspy.enableTelemetry.description": "启用匿名使用遥测以帮助改进 MatrixSpy"
 }

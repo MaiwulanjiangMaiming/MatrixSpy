@@ -1,38 +1,84 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as nls from 'vscode-nls';
 import { DependencyCheckResult, PythonBridge } from '../ipc/PythonBridge';
 
+const localize = nls.loadMessageBundle();
+
 const IS_WINDOWS = process.platform === 'win32';
+
+/**
+ * Quote a single shell argument for safe interpolation into a terminal command.
+ *
+ * On POSIX shells we wrap in double quotes and escape the characters that are
+ * still special inside double quotes: `"`, `\`, `$`, `` ` ``, and `!` (history
+ * expansion in interactive bash). We also reject embedded newlines/carriage
+ * returns, which would otherwise let a malicious path inject a second command.
+ *
+ * On Windows we wrap in double quotes and escape `"` as `""` (cmd.exe rule)
+ * plus reject `&`, `|`, `<`, `>`, `^`, newlines — all of which are command
+ * separators / metacharacters in cmd.exe.
+ */
+function quoteShellArg(arg: string): string {
+    if (arg === undefined || arg === null) {
+        return '""';
+    }
+    const str = String(arg);
+
+    if (IS_WINDOWS) {
+        // Reject characters that break out of double-quoted segments in cmd.exe.
+        if (/[\r\n&|<>^]/.test(str)) {
+            throw new Error(`Refusing to quote shell argument with embedded metacharacter: ${JSON.stringify(str)}`);
+        }
+        return '"' + str.replace(/"/g, '""') + '"';
+    }
+
+    // POSIX shell.
+    if (/[\r\n]/.test(str)) {
+        throw new Error(`Refusing to quote shell argument with embedded newline: ${JSON.stringify(str)}`);
+    }
+    return '"' + str.replace(/(["\\$`!])/g, '\\$1') + '"';
+}
 
 export async function installDepsCommand(): Promise<void> {
     const config = vscode.workspace.getConfiguration('matrixspy');
     const pythonPath = config.get<string>('pythonPath', 'python3');
 
+    let quotedPython: string;
+    try {
+        quotedPython = quoteShellArg(pythonPath);
+    } catch {
+        vscode.window.showErrorMessage(
+            localize('pythonPathUnsafe', 'MatrixSpy: The configured pythonPath contains unsafe characters and cannot be used in a terminal command. Please fix "matrixspy.pythonPath" in Settings.')
+        );
+        return;
+    }
+
     const installOptions: vscode.QuickPickItem[] = [
         {
-            label: '$(package) Install with --user flag (Recommended)',
-            description: 'Install to user directory, safe for system Python',
+            label: localize('installUser', '$(package) Install with --user flag (Recommended)'),
+            description: localize('installUserDesc', 'Install to user directory, safe for system Python'),
             detail: 'user'
         },
         {
-            label: '$(package) Install with --break-system-packages',
-            description: 'Force install to system Python (may cause issues)',
+            label: localize('installBreakSystem', '$(package) Install with --break-system-packages'),
+            description: localize('installBreakSystemDesc', 'Force install to system Python (may cause issues)'),
             detail: 'break-system'
         },
         {
-            label: '$(terminal) Create virtual environment',
-            description: 'Create a venv and install dependencies there',
+            label: localize('installVenv', '$(terminal) Create virtual environment'),
+            description: localize('installVenvDesc', 'Create a venv and install dependencies there'),
             detail: 'venv'
         },
         {
-            label: '$(info) Show manual installation instructions',
-            description: 'Display installation commands in terminal',
+            label: localize('installManual', '$(info) Show manual installation instructions'),
+            description: localize('installManualDesc', 'Display installation commands in terminal'),
             detail: 'manual'
         }
     ];
 
     const selected = await vscode.window.showQuickPick(installOptions, {
-        placeHolder: 'Choose how to install Python dependencies'
+        placeHolder: localize('chooseInstallMethod', 'Choose how to install Python dependencies')
     });
 
     if (!selected) {
@@ -49,16 +95,16 @@ export async function installDepsCommand(): Promise<void> {
 
     switch (selected.detail) {
         case 'user':
-            terminal.sendText(`${pythonPath} -m pip install --user ${packages}`);
+            terminal.sendText(`${quotedPython} -m pip install --user ${packages}`);
             vscode.window.showInformationMessage(
-                'Installing Python dependencies to user directory. Check terminal for progress.'
+                localize('installingUser', 'Installing Python dependencies to user directory. Check terminal for progress.')
             );
             break;
 
         case 'break-system':
-            terminal.sendText(`${pythonPath} -m pip install --break-system-packages ${packages}`);
+            terminal.sendText(`${quotedPython} -m pip install --break-system-packages ${packages}`);
             vscode.window.showWarningMessage(
-                'Installing with --break-system-packages. This may affect your system Python installation.'
+                localize('installingBreakSystem', 'Installing with --break-system-packages. This may affect your system Python installation.')
             );
             break;
 
@@ -68,31 +114,41 @@ export async function installDepsCommand(): Promise<void> {
                 ? path.join(workspaceFolders[0].uri.fsPath, '.matrixspy-venv')
                 : path.join(process.env.HOME || process.env.USERPROFILE || '~', '.matrixspy-venv');
 
-            const activateCmd = IS_WINDOWS
-                ? `${path.join(venvPath, 'Scripts', 'activate')}`
-                : `source ${path.join(venvPath, 'bin', 'activate')}`;
+            let quotedVenvPath: string;
+            let activateCmd: string;
+            try {
+                quotedVenvPath = quoteShellArg(venvPath);
+                activateCmd = IS_WINDOWS
+                    ? quoteShellArg(path.join(venvPath, 'Scripts', 'activate'))
+                    : `source ${quoteShellArg(path.join(venvPath, 'bin', 'activate'))}`;
+            } catch {
+                vscode.window.showErrorMessage(
+                    localize('venvPathUnsafe', 'MatrixSpy: The computed virtual environment path contains unsafe characters. Please choose a different workspace or home directory.')
+                );
+                return;
+            }
             const pythonInVenv = IS_WINDOWS
                 ? path.join(venvPath, 'Scripts', 'python.exe')
                 : path.join(venvPath, 'bin', 'python3');
 
-            terminal.sendText(`${pythonPath} -m venv ${venvPath}`);
+            terminal.sendText(`${quotedPython} -m venv ${quotedVenvPath}`);
             terminal.sendText(activateCmd);
             terminal.sendText(`pip install ${packages}`);
 
             vscode.window.showInformationMessage(
-                `Creating virtual environment at ${venvPath}.`
+                localize('creatingVenv', 'Creating virtual environment at {0}.', venvPath)
             );
 
             const updateSettings = await vscode.window.showInformationMessage(
-                'Would you like to update MatrixSpy settings to use this virtual environment?',
-                'Yes',
-                'No'
+                localize('updatePythonPath', 'Would you like to update MatrixSpy settings to use this virtual environment?'),
+                localize('yes', 'Yes'),
+                localize('no', 'No')
             );
 
-            if (updateSettings === 'Yes') {
+            if (updateSettings === localize('yes', 'Yes')) {
                 await config.update('pythonPath', pythonInVenv, vscode.ConfigurationTarget.Global);
                 vscode.window.showInformationMessage(
-                    `Python path updated to: ${pythonInVenv}`
+                    localize('pythonPathUpdated', 'Python path updated to: {0}', pythonInVenv)
                 );
             }
             break;
@@ -101,8 +157,8 @@ export async function installDepsCommand(): Promise<void> {
         case 'manual':
             terminal.sendText('echo "MatrixSpy Python Dependencies Installation"');
             terminal.sendText('echo "============================================="');
-            terminal.sendText(`echo "  ${pythonPath} -m pip install --user ${packages}"`);
-            terminal.sendText(`echo "  ${pythonPath} -m pip install --break-system-packages ${packages}"`);
+            terminal.sendText(`echo "  ${quotedPython} -m pip install --user ${packages}"`);
+            terminal.sendText(`echo "  ${quotedPython} -m pip install --break-system-packages ${packages}"`);
             terminal.sendText('echo "  python3 -m venv ~/.matrixspy-venv"');
             if (IS_WINDOWS) {
                 terminal.sendText('echo "  ~/.matrixspy-venv/Scripts/activate"');
@@ -121,14 +177,14 @@ export async function testEnvironmentCommand(): Promise<DependencyCheckResult> {
 
     if (!depResult.pythonFound) {
         const action = await vscode.window.showErrorMessage(
-            `MatrixSpy: Python not found at "${pythonPath}". Configure pythonPath or install Python 3.8+ first.`,
-            'Configure Settings',
-            'Install Guide'
+            localize('pythonNotFoundAtPath', 'MatrixSpy: Python not found at "{0}". Configure pythonPath or install Python 3.8+ first.', pythonPath),
+            localize('configureSettings', 'Configure Settings'),
+            localize('installGuide', 'Install Guide')
         );
 
-        if (action === 'Configure Settings') {
+        if (action === localize('configureSettings', 'Configure Settings')) {
             await vscode.commands.executeCommand('workbench.action.openSettings', 'matrixspy.pythonPath');
-        } else if (action === 'Install Guide') {
+        } else if (action === localize('installGuide', 'Install Guide')) {
             await vscode.commands.executeCommand('matrixspy.showWelcome');
         }
         return depResult;
@@ -137,21 +193,21 @@ export async function testEnvironmentCommand(): Promise<DependencyCheckResult> {
     if (!depResult.allDependenciesMet) {
         const missing = depResult.missingPackages.join(', ');
         const action = await vscode.window.showWarningMessage(
-            `MatrixSpy: Python detected (${depResult.pythonVersion ?? 'unknown version'}), but missing packages: ${missing}.`,
-            'Install Dependencies',
-            'Open Guide'
+            localize('missingPackagesDetected', 'MatrixSpy: Python detected ({0}), but missing packages: {1}.', depResult.pythonVersion ?? 'unknown version', missing),
+            localize('installDeps', 'Install Dependencies'),
+            localize('openGuide', 'Open Guide')
         );
 
-        if (action === 'Install Dependencies') {
+        if (action === localize('installDeps', 'Install Dependencies')) {
             await installDepsCommand();
-        } else if (action === 'Open Guide') {
+        } else if (action === localize('openGuide', 'Open Guide')) {
             await vscode.commands.executeCommand('matrixspy.showWelcome');
         }
         return depResult;
     }
 
     await vscode.window.showInformationMessage(
-        `MatrixSpy environment is ready. ${depResult.pythonVersion ?? 'Python detected'} with all required packages.`
+        localize('environmentReady', 'MatrixSpy environment is ready. {0} with all required packages.', depResult.pythonVersion ?? 'Python detected')
     );
 
     return depResult;

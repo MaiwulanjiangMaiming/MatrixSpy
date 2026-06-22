@@ -5,16 +5,24 @@ Author: Maiwulanjiang Maiming
 */
 
 import * as vscode from 'vscode';
-import * as nls from 'vscode-nls';
+import * as path from 'path';
 import { PythonBridge } from '../ipc/PythonBridge';
-import { updateTreeData, updateCurrentWebviewPanel, cacheFileData, updateStatusBar, sendTelemetry, addRecentFile } from '../extension';
+import { updateTreeData, updateCurrentWebviewPanel, clearCurrentWebviewPanelIfMatching, cacheFileData, updateStatusBar, sendTelemetry, addRecentFile } from '../extension';
 import { getHtml } from '../webview/html';
 import type { WebviewToExtension, ExtensionToWebview } from '../types/messages';
 
-const localize = nls.loadMessageBundle();
-
 export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvider {
-    private messageListenerDisposable: vscode.Disposable | null = null;
+    /**
+     * Per-document message listeners.
+     *
+     * VS Code calls `resolveCustomEditor` once per opened MAT file. Previously
+     * we stored a single `messageListenerDisposable` and disposed it before
+     * registering a new one, which meant only the most recently opened file
+     * could receive messages from its webview — older tabs silently dropped
+     * slice requests and selection updates. Keying by document URI ensures
+     * every open editor keeps its own listener for its lifetime.
+     */
+    private readonly messageListeners = new Map<string, vscode.Disposable>();
 
     constructor(
         private readonly context: vscode.ExtensionContext,
@@ -24,14 +32,10 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
     }
 
     public dispose(): void {
-        this.removeMessageListener();
-    }
-
-    private removeMessageListener(): void {
-        if (this.messageListenerDisposable) {
-            this.messageListenerDisposable.dispose();
-            this.messageListenerDisposable = null;
+        for (const disposable of this.messageListeners.values()) {
+            disposable.dispose();
         }
+        this.messageListeners.clear();
     }
 
     public async openCustomDocument(
@@ -50,8 +54,9 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        const filePath = document.uri.fsPath;
         updateCurrentWebviewPanel(webviewPanel);
-        addRecentFile(this.context, document.uri.fsPath);
+        addRecentFile(this.context, filePath);
 
         webviewPanel.webview.options = {
             enableScripts: true,
@@ -67,17 +72,39 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         const loadingMsg: ExtensionToWebview = { command: 'loadingStart', message: 'Loading file...' };
         webviewPanel.webview.postMessage(loadingMsg);
 
-        this.removeMessageListener();
-        this.messageListenerDisposable = webviewPanel.webview.onDidReceiveMessage(
-            this.createMessageHandler(document.uri.fsPath, webviewPanel)
+        // Dispose any previous listener for this document (e.g. when the
+        // same file is reopened after being closed) before registering a
+        // fresh one. Other documents' listeners are left untouched.
+        const existing = this.messageListeners.get(filePath);
+        if (existing) {
+            existing.dispose();
+            this.messageListeners.delete(filePath);
+        }
+        const listener = webviewPanel.webview.onDidReceiveMessage(
+            this.createMessageHandler(filePath, webviewPanel)
         );
+        this.messageListeners.set(filePath, listener);
 
         webviewPanel.onDidDispose(() => {
-            this.removeMessageListener();
-            updateCurrentWebviewPanel(null);
+            const l = this.messageListeners.get(filePath);
+            if (l) {
+                l.dispose();
+                this.messageListeners.delete(filePath);
+            }
+            // Only clear the global active-panel pointer if this panel is
+            // still the one registered as active. Otherwise we'd clobber a
+            // newer panel that has since become active.
+            clearCurrentWebviewPanelIfMatching(webviewPanel);
         });
 
-        await this.handleLoadFile(document.uri.fsPath, webviewPanel);
+        // Track this panel as active while it's visible.
+        webviewPanel.onDidChangeViewState(() => {
+            if (webviewPanel.active) {
+                updateCurrentWebviewPanel(webviewPanel);
+            }
+        });
+
+        await this.handleLoadFile(filePath, webviewPanel);
     }
 
     private createMessageHandler(filePath: string, webviewPanel: vscode.WebviewPanel) {
@@ -108,9 +135,16 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
                     });
                 }
             } else if (message.command === 'openExternal' && message.url) {
-                vscode.env.openExternal(vscode.Uri.parse(message.url));
+                try {
+                    const url = message.url;
+                    if (/^(https?:|mailto:)/i.test(url)) {
+                        vscode.env.openExternal(vscode.Uri.parse(url));
+                    }
+                } catch {
+                    // ignore malformed URLs
+                }
             } else if (message.command === 'variableSelected' && message.variableName) {
-                const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+                const fileName = path.basename(filePath);
                 const cachedData = cacheFileData(filePath);
                 const varCount = cachedData ? Object.keys(cachedData).length : 0;
                 updateStatusBar(fileName, varCount, message.variableName, message.varInfo || null);
@@ -119,6 +153,12 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
                     ndim: String(varInfo.shape?.length ?? 0),
                     dtype: varInfo.dtype || 'unknown'
                 });
+            } else if (message.command === 'exportData') {
+                // The webview toolbar Export button delegates to the unified
+                // export command. Ensure this panel is the active one so the
+                // command's getActiveMatFilePath() resolves to this document.
+                webviewPanel.reveal(vscode.ViewColumn.Active, false);
+                vscode.commands.executeCommand('matrixspy.export');
             }
         };
     }
@@ -138,7 +178,7 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
             if (result.success && result.data) {
                 cacheFileData(filePath, result.data);
                 updateTreeData(result.data);
-                const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+                const fileName = path.basename(filePath);
                 const varCount = Object.keys(result.data).length;
                 updateStatusBar(fileName, varCount, null, null);
                 vscode.commands.executeCommand('setContext', 'matrixspy:hasActiveFile', true);
