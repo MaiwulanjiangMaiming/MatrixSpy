@@ -8,6 +8,242 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.5] - 2026-06-22
+
+### Security
+
+- **CSP nonce for Setup Wizard and Compare Panel webviews** — prevents XSS attacks from injected scripts/styles.
+- **Hardened shell argument quoting** — platform-specific quoting (POSIX vs cmd.exe) that rejects embedded metacharacters to prevent command injection.
+
+### Correctness
+
+- **PythonBridge config hot-reload** — `pythonPath` now read from config on each call; daemon auto-restarts when interpreter changes.
+- **Multi-editor message listeners** — `CustomEditorProvider` now uses `Map<filePath, Disposable>` so each open MAT file keeps its own listener; fixes multi-tab slice loading.
+- **exportAll sentinel detection** — uses `exportAll === true` instead of fragile label string matching.
+- **New `maxFileSizeMB` setting** — range 1–4096 MB; `maxDataSize` deprecated with migration message.
+- **Deprecate `enableImage`** — setting never read by code; marked deprecated to avoid user confusion.
+
+### UX
+
+- **Status bar command dynamic switching** — opens file when environment ready, Setup Wizard when not.
+- **Keybinding conflict avoidance** — changed from `Cmd/Ctrl+Shift+E/D/R/M` to `Cmd/Ctrl+Alt+E/D/R/M`.
+- **Command palette coverage** — `openRecent`, `compareFiles`, etc. now appear in command palette menu.
+- **Export format memory** — placeholder shows last-used format hint after first export.
+- **Webview toolbar Export button** — 📤 button in header triggers unified export flow.
+- **Setup Wizard auto-test** — environment auto-tested after install terminal closes; status updates automatically.
+
+### i18n
+
+- **Localized generateCode, compareFiles, walkthroughCommands, Setup Wizard** — all user-facing strings now use `localize()`.
+
+### Cleanup
+
+- **Non-blocking activation** — `checkAndShowWelcome` runs fire-and-forget; Python check no longer delays command/view availability.
+- **Removed dead code** — 6 unused per-format export functions, 6 dead NLS entries, 2 unused `WebviewMessage`/`WebviewResponse` types.
+- **Fixed CHANGELOG telemetry default** — corrected "default: enabled" to "default: disabled".
+- **Fixed walkthrough keybinding reference** — updated from `Shift+E` to `Alt+E`.
+
+## [1.5.4] - 2026-06-08
+
+### Added
+
+- **Recent files history**: `MatrixSpy: Open Recent MAT File` command shows last 10 opened files.
+- **Full-size interactive histogram**: Expand Histogram button opens SVG histogram with adjustable bins, log Y axis, hover tooltips, and median line.
+- **Mini histogram SVG rewrite**: Distribution preview now uses SVG instead of Canvas for crisp Retina rendering.
+
+### Fixed
+
+- **Histogram blur**: Both mini and full histograms rewritten from Canvas to SVG for sharp rendering on all displays.
+- **Expand Histogram button**: Fixed `state.currentStats` not being stored, causing the button to do nothing.
+
+## [1.5.3] - 2026-06-08
+
+### Added
+
+- **Matrix value search**: click 🔍 in toolbar to search by condition (`> 1e6`, `== NaN`, `< 0`, `Inf`, etc.). Matches are highlighted on heatmap (yellow dots) and table (yellow cells).
+- **Global keybindings**: `Cmd/Ctrl+Shift+M` open file, `Cmd/Ctrl+Shift+E` export CSV, `Cmd/Ctrl+Shift+R` refresh, `Cmd/Ctrl+Shift+D` compare files.
+
+## [1.5.2] - 2026-06-08
+
+### Added
+
+- **Heatmap pixel tooltip**: hover over any pixel in the heatmap to see row, column, and value. NaN/Inf/complex values are properly displayed.
+- **Right-click copy menu (Table)**: copy cell value, current row, current column, or entire table as CSV.
+- **Right-click copy menu (Heatmap)**: copy pixel value or position with value.
+
+## [1.5.1] - 2026-06-05
+
+### Changed
+
+- **1D Chart: SVG rewrite** — replaced Canvas-based line chart with SVG rendering. The chart is now vector-based, auto-adapts to any DPI, and visually integrates with the VS Code webview. Added gradient area fill, dashed grid lines, and hover tooltip.
+- **Theme switching** — added Light / Dark / Auto theme buttons in the Settings panel (below Version info). Switching themes smoothly transitions all UI colors with 0.4s cubic-bezier animation. Theme buttons feature hover lift, active glow, and icon pop animations.
+
+## [1.5.0] - 2026-06-03
+
+### Added
+
+- **MAT File Diff/Compare** — new `matrixspy.compareFiles` command (right-click a .mat file → "Compare with...") to compare two .mat files side by side. Shows variable-level additions, deletions, modifications, and unchanged entries. For modified numeric arrays, computes the difference matrix (second − first) and renders it with an RdBu diverging colormap. Diff statistics (min, max, mean, std, abs mean) are displayed alongside the visual diff.
+- **i18n Internationalization** — added multi-language support using `vscode-nls`. All command titles and configuration descriptions in `package.json` now use `%key%` references resolved via `package.nls.json` (English) and `package.nls.zh-cn.json` (Chinese). User-facing messages in `extension.ts`, `exportData.ts`, and `CustomEditorProvider.ts` are localized through `vscode-nls` message bundles.
+
+## [1.4.2] - 2026-06-03
+
+### Added
+
+- Optional anonymous telemetry — uses `@vscode/extension-telemetry` to send anonymized usage events (file loaded, variable selected, export completed, errors). Controlled by the `matrixspy.enableTelemetry` setting (default: disabled). No data is sent unless the user explicitly opts in.
+- Centralized state management Store — new `MatViewerStore` class wraps webview state with `get`/`set`/`subscribe`/`snapshot`/`undo`/`redo`/`persist`/`restore` methods. State is persisted via `vscode.setState()` and automatically synced with the existing `state` object.
+- Undo/Redo keyboard shortcuts — `Ctrl+Z` / `Cmd+Z` to undo, `Ctrl+Shift+Z` / `Cmd+Shift+Z` to redo view state changes (display mode, colormap, axis, variable selection). Up to 50 history entries.
+
+## [1.4.1] - 2026-06-03
+
+### Added
+
+- Web Worker canvas rendering — moves heavy colormap LUT application and pixel computation to an inline Web Worker (Blob URL) for matrices with >500K elements, keeping the main thread responsive. Falls back to main-thread rendering if Worker creation fails.
+- ROI Selection Measurement — new ROI button (⬚) in the image toolbar toggles region-of-interest mode. Drag on the canvas to draw a selection rectangle; on release, a floating stats panel shows Mean, Std, Min, Max, and Count for the selected region. Press Escape or click the ROI button again to dismiss.
+
+## [1.4.0] - 2026-06-03
+
+### Added
+
+- 1D Line Chart View — new Canvas 2D line chart for 1D arrays with X/Y axes, grid lines, mouse hover tooltip, zoom (scroll wheel), and pan (drag). Toggle between Grid and Chart views via tabs.
+- Table Virtual Scrolling — virtual scrolling for 2D and 3D tables with >200 rows, rendering only visible rows ± buffer for smooth performance on large matrices. Fixed header row preserved.
+- Breadcrumb Navigation — breadcrumb path bar shown at top when navigating into nested structs. Each segment is clickable to navigate back.
+
+## [1.3.19] - 2026-06-01
+
+### Added
+
+- Generate Python Code command — select a variable and generate a ready-to-run Python script with `scipy.io.loadmat` + `matplotlib` visualization code, opened in a new editor tab
+
+## [1.3.18] - 2026-06-01
+
+### Added
+
+- Excel (.xlsx) export command — export any variable to Excel format via `matrixspy.exportXLSX` command (requires `openpyxl` Python package; shows install prompt if missing)
+
+## [1.3.17] - 2026-05-30
+
+### Fixed
+
+- Critical bug: `builtInNames` variable was undefined in `renderNDArray`, causing 3D+ tensor views to crash — now extracted as global `BUILTIN_COLORMAP_NAMES`
+- Critical bug: `_process_value(None)` returned string `"None"` instead of `null`, causing v7.3 HDF5 struct fields to display as "None" — now returns `null` so h5py fallback can correctly fill the data
+
+### Changed
+
+- Improved mini-histogram: bars now use colormap colors instead of confusing percentile lines; only median line shown as dashed; added "Distribution" title and min/max axis labels
+- Improved colorbar: cleaner border style, wider label area
+- Removed ROI selection feature (not essential)
+
+## [1.3.16] - 2026-05-30
+
+### Added
+
+- Custom colormap support — define your own colormaps in VS Code settings (`matrixspy.customColormaps`) as key-point arrays; they appear in the colormap selector alongside built-in options
+- Fixed duplicate colormap options in the selector dropdown
+
+## [1.3.15] - 2026-05-30
+
+### Added
+
+- Direction-aware slice prefetching — detects forward/backward scroll direction and prefetches 3 slices in the scroll direction + 1 in the opposite direction, improving cache hit rate during sequential browsing
+- Contributing guide (`.github/CONTRIBUTING.md`) and GitHub Issue templates (bug report + feature request)
+
+## [1.3.14] - 2026-05-30
+
+### Added
+
+- Slice drag real-time refresh — removed debounce for arrays with data (instant rendering), added LRU slice cache (10 entries) and prefetch mechanism (±2 adjacent slices) for large files without data
+- HDF5 export command — export any variable to HDF5 format with gzip compression via `matrixspy.exportHDF5` command
+
+## [1.3.13] - 2026-05-30
+
+### Added
+
+- Colorbar display next to image canvas — shows colormap gradient with min/max/mid value labels
+- Mini histogram in statistics panel — estimated distribution from percentile data with percentile markers
+
+## [1.3.12] - 2026-05-30
+
+### Added
+
+- ARIA accessibility attributes for sidebar tree (`role="tree"`, `role="treeitem"`, `aria-expanded`), canvas (`role="img"`), range inputs (`aria-label`), and toolbar buttons
+- Actionable error hints in webview — when Python is missing, packages are not installed, or file is too large, the error message now includes specific fix instructions
+
+## [1.3.11] - 2026-05-30
+
+### Fixed
+
+- Fixed v7.3 nested HDF5 groups showing "None" for child datasets — added recursive `_fill_none_from_hdf5` / `_fill_none_in_struct` to replace all None values with h5py direct reads
+- Fixed content still not being copyable in webview — changed to `user-select: text` on `.main-content *` with exclusions for canvas/buttons
+
+## [1.3.10] - 2026-05-30
+
+### Fixed
+
+- Fixed v7.3 HDF5 files with non-standard MATLAB types (float32, int64, etc.) showing "None" — now falls back to h5py direct read when mat73 returns None
+- Fixed webview content not being selectable/copyable — added `user-select: text` to main content area
+
+## [1.3.9] - 2026-05-30
+
+### Added
+
+- CI auto-publish to Open VSX on push to main branch (requires `OPEN_VSX_TOKEN` secret in GitHub repo settings)
+
+## [1.3.8] - 2026-05-30
+
+### Fixed
+
+- Fixed 4D+ tensor images not rendering — replaced `get3DSlice` with `getNDSlice` that supports arbitrary dimensionality via recursive slice extraction and automatic flattening to 2D
+- Removed axis selector limit of 4 — all dimensions are now visible in the dropdown
+
+## [1.3.7] - 2026-05-30
+
+### Added
+
+- TypeScript unit tests with Jest — 10 test cases covering NPY encoding, PNG encoding, and message type validation
+
+## [1.3.6] - 2026-05-30
+
+### Added
+
+- Loading progress feedback for large files — Python daemon sends progress events (detecting format → parsing structure → loading variables → generating preview) and webview displays an animated progress bar with stage labels
+
+## [1.3.5] - 2026-05-30
+
+### Changed
+
+- Typed `CustomEditorProvider.createMessageHandler` with `WebviewToExtension` discriminated union from `types/messages.ts`
+- Typed `postMessage` calls with `ExtensionToWebview` union type for compile-time message safety
+
+## [1.3.4] - 2026-05-30
+
+### Added
+
+- Python input validation with `dataclass` for daemon requests (`LoadFileRequest`, `LoadSliceRequest`) — invalid requests now return `VALIDATION_ERROR` code
+- `MatParseError` exception class with error codes (`FILE_NOT_FOUND`, `DEPENDENCY_MISSING`, `MEMORY_LIMIT`, `INVALID_FORMAT`) for structured error handling
+
+## [1.3.3] - 2026-05-30
+
+### Changed
+
+- Refactored `handleMessage()` into separate handler functions (`handleFileLoaded`, `handleSliceLoaded`, `handleShowVariable`, `handleError`) for better readability
+- Added `types/messages.ts` with discriminated union type definitions for webview-extension communication
+
+## [1.3.2] - 2026-05-30
+
+### Fixed
+
+- Fixed `require('zlib')` runtime imports in exportData.ts — moved to top-level `import * as zlib from 'zlib'`
+- Added `enablement` condition to `refreshVariables` command — only enabled when a MAT file is active
+- Replaced `var` with `const`/`let` in `buildLUT()` function for code consistency
+
+## [1.3.1] - 2026-05-30
+
+### Fixed
+
+- Fixed version fallback in CustomEditorProvider from '1.2.1' to '1.3.1'
+- Fixed canvas transform state (rotation/flip) not resetting when loading a new file
+- Fixed Window/Level sliders not resetting to defaults when loading a new file
+
 ## [1.3.0] - 2026-05-24
 
 ### Added

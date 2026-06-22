@@ -113,13 +113,22 @@ pip install scipy numpy h5py mat73
 ```json
 {
   "matrixspy.pythonPath": "python3",
-  "matrixspy.maxDataSize": 10000
+  "matrixspy.maxFileSizeMB": 100
 }
 ```
 
 ## 更新日志
 
 完整版本历史请查看 [CHANGELOG.md](CHANGELOG.md)。
+
+### v1.5.5 亮点 (2026-06-22)
+
+- **安全加固**: webview CSP nonce、shell 参数注入防护
+- **键绑定修复**: 从 `Cmd/Ctrl+Shift+E/D/R/M` 改为 `Cmd/Ctrl+Alt+E/D/R/M`，避免 VS Code 冲突
+- **新 `maxFileSizeMB` 设置**: 范围 1–4096 MB（替代已弃用的 `maxDataSize`）
+- **webview 导出按钮**: 工具栏 📤 按钮快速导出
+- **Setup Wizard 自动测试**: 安装依赖后自动测试环境
+- **多标签页修复**: 每个打开的 MAT 文件现在有独立的消息监听器
 
 ### v1.5.0 亮点 (2026-06-03)
 

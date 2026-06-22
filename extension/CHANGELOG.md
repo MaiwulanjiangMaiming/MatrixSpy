@@ -8,6 +8,41 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.5] - 2026-06-22
+
+### Security
+
+- **CSP nonce for Setup Wizard and Compare Panel webviews** — prevents XSS attacks from injected scripts/styles.
+- **Hardened shell argument quoting** — platform-specific quoting (POSIX vs cmd.exe) that rejects embedded metacharacters to prevent command injection.
+
+### Correctness
+
+- **PythonBridge config hot-reload** — `pythonPath` now read from config on each call; daemon auto-restarts when interpreter changes.
+- **Multi-editor message listeners** — `CustomEditorProvider` now uses `Map<filePath, Disposable>` so each open MAT file keeps its own listener; fixes multi-tab slice loading.
+- **exportAll sentinel detection** — uses `exportAll === true` instead of fragile label string matching.
+- **New `maxFileSizeMB` setting** — range 1–4096 MB; `maxDataSize` deprecated with migration message.
+- **Deprecate `enableImage`** — setting never read by code; marked deprecated to avoid user confusion.
+
+### UX
+
+- **Status bar command dynamic switching** — opens file when environment ready, Setup Wizard when not.
+- **Keybinding conflict avoidance** — changed from `Cmd/Ctrl+Shift+E/D/R/M` to `Cmd/Ctrl+Alt+E/D/R/M`.
+- **Command palette coverage** — `openRecent`, `compareFiles`, etc. now appear in command palette menu.
+- **Export format memory** — placeholder shows last-used format hint after first export.
+- **Webview toolbar Export button** — 📤 button in header triggers unified export flow.
+- **Setup Wizard auto-test** — environment auto-tested after install terminal closes; status updates automatically.
+
+### i18n
+
+- **Localized generateCode, compareFiles, walkthroughCommands, Setup Wizard** — all user-facing strings now use `localize()`.
+
+### Cleanup
+
+- **Non-blocking activation** — `checkAndShowWelcome` runs fire-and-forget; Python check no longer delays command/view availability.
+- **Removed dead code** — 6 unused per-format export functions, 6 dead NLS entries, 2 unused `WebviewMessage`/`WebviewResponse` types.
+- **Fixed CHANGELOG telemetry default** — corrected "default: enabled" to "default: disabled".
+- **Fixed walkthrough keybinding reference** — updated from `Shift+E` to `Alt+E`.
+
 ## [1.5.4] - 2026-06-08
 
 ### Added

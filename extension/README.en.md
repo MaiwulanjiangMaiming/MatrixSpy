@@ -113,13 +113,22 @@ When viewing tensors in Image mode:
 ```json
 {
   "matrixspy.pythonPath": "python3",
-  "matrixspy.maxDataSize": 10000
+  "matrixspy.maxFileSizeMB": 100
 }
 ```
 
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
+
+### v1.5.5 Highlights (2026-06-22)
+
+- **Security hardening**: CSP nonce for webviews, shell argument injection prevention
+- **Keybinding fix**: Changed from `Cmd/Ctrl+Shift+E/D/R/M` to `Cmd/Ctrl+Alt+E/D/R/M` to avoid VS Code conflicts
+- **New `maxFileSizeMB` setting**: Range 1–4096 MB (replaces deprecated `maxDataSize`)
+- **Webview Export button**: 📤 button in toolbar for quick export
+- **Setup Wizard auto-test**: Environment auto-tested after dependency installation
+- **Multi-tab fix**: Each open MAT file now has its own message listener
 
 ### v1.5.0 Highlights (2026-06-03)
 
