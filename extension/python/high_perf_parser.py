@@ -606,6 +606,15 @@ class HighPerfMatParser:
             if arr.size == 0:
                 return {'min': None, 'max': None, 'mean': None, 'std': None}
 
+            # For very large arrays, computing exact nanpercentile / nanstd on
+            # the full array is O(n) with large constants and can block the
+            # daemon for seconds. Fall back to a deterministic random sample
+            # (1M elements) which gives statistically equivalent estimates at
+            # a fraction of the cost. memory_mb stays exact (it's just nbytes).
+            SAMPLE_THRESHOLD = 10_000_000
+            if arr.size > SAMPLE_THRESHOLD:
+                return self._estimate_stats_from_sample(arr)
+
             stats: Dict[str, Any] = {}
 
             if np.iscomplexobj(arr):
@@ -649,9 +658,65 @@ class HighPerfMatParser:
                 stats['nan_count'] = 0
                 stats['inf_count'] = 0
 
-            stats['sparsity'] = float(np.count_nonzero(arr == 0) / arr.size)
+            # Use (size - count_nonzero) instead of count_nonzero(arr == 0)
+            # to avoid materializing a temporary boolean array the same size
+            # as arr. count_nonzero works directly on the original buffer.
+            stats['sparsity'] = float((arr.size - np.count_nonzero(arr)) / arr.size)
             stats['memory_mb'] = float(arr.nbytes / 1e6)
 
+            return stats
+        except Exception as e:
+            return {'min': None, 'max': None, 'mean': None, 'std': None, 'error': str(e)}
+
+    def _estimate_stats_from_sample(self, arr: np.ndarray, max_sample: int = 1_000_000) -> Dict[str, Any]:
+        """Estimate statistics from a deterministic random sample for arrays
+        larger than 10M elements. Uses a fixed seed for reproducibility so
+        repeated views of the same file yield stable numbers."""
+        try:
+            flat = arr.ravel()
+            if flat.size <= max_sample:
+                sample = flat
+            else:
+                rng = np.random.default_rng(42)
+                indices = rng.choice(flat.size, size=max_sample, replace=False)
+                sample = flat[indices]
+
+            stats: Dict[str, Any] = {}
+
+            if np.iscomplexobj(sample):
+                abs_sample = np.abs(sample)
+                stats['min'] = self._safe_float(np.nanmin(abs_sample))
+                stats['max'] = self._safe_float(np.nanmax(abs_sample))
+                stats['mean'] = self._safe_float(np.nanmean(abs_sample))
+                stats['std'] = self._safe_float(np.nanstd(abs_sample))
+            else:
+                stats['min'] = self._safe_float(np.nanmin(sample))
+                stats['max'] = self._safe_float(np.nanmax(sample))
+                stats['mean'] = self._safe_float(np.nanmean(sample))
+                stats['std'] = self._safe_float(np.nanstd(sample))
+
+            if np.issubdtype(sample.dtype, np.floating):
+                try:
+                    percentiles = np.nanpercentile(sample, [5, 25, 50, 75, 95])
+                    stats['percentiles'] = {
+                        'p5': self._safe_float(percentiles[0]),
+                        'p25': self._safe_float(percentiles[1]),
+                        'p50': self._safe_float(percentiles[2]),
+                        'p75': self._safe_float(percentiles[3]),
+                        'p95': self._safe_float(percentiles[4])
+                    }
+                except Exception:
+                    stats['percentiles'] = None
+                stats['nan_count'] = int(np.isnan(sample).sum())
+                stats['inf_count'] = int(np.isinf(sample).sum())
+            else:
+                stats['nan_count'] = 0
+                stats['inf_count'] = 0
+
+            stats['sparsity'] = float((sample.size - np.count_nonzero(sample)) / sample.size)
+            # memory_mb is exact (nbytes), not estimated from sample.
+            stats['memory_mb'] = float(arr.nbytes / 1e6)
+            stats['note'] = 'Estimated from sample'
             return stats
         except Exception as e:
             return {'min': None, 'max': None, 'mean': None, 'std': None, 'error': str(e)}
@@ -920,30 +985,100 @@ class HighPerfMatParser:
 
 
 def daemon_main() -> None:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
     parser = HighPerfMatParser()
     stdin = sys.stdin
     stdout = sys.stdout
+    stdout_lock = threading.Lock()
+    # Concurrent request processing: load_file / load_slice / export / compare
+    # are dispatched to a thread pool so that a long-running parse on one file
+    # does not block a slice request for another. HighPerfMatParser is stateless
+    # (each call opens its own file), so concurrent access is safe. stdout
+    # writes are serialized by stdout_lock to keep response lines intact.
+    executor = ThreadPoolExecutor(max_workers=4)
 
     def _respond(obj, request_id=None):
         """Send a JSON response line. Wrapped in try/except so a serialization
-        failure or broken pipe never crashes the daemon loop."""
+        failure or broken pipe never crashes the daemon loop. Thread-safe via
+        stdout_lock so concurrent worker threads never interleave lines."""
         try:
             if request_id is not None:
                 obj['_request_id'] = request_id
-            stdout.write(json.dumps(obj) + '\n')
-            stdout.flush()
-        except Exception as exc:
-            # Last-resort: try to write a minimal error line; if even that
-            # fails (broken pipe), just give up silently.
-            try:
-                stdout.write(json.dumps({
-                    'success': False,
-                    'error': f'Daemon response serialization failed: {exc}',
-                    'code': 'SERIALIZE_ERROR'
-                }) + '\n')
+            line = json.dumps(obj) + '\n'
+            with stdout_lock:
+                stdout.write(line)
                 stdout.flush()
+        except Exception as exc:
+            try:
+                with stdout_lock:
+                    stdout.write(json.dumps({
+                        'success': False,
+                        'error': f'Daemon response serialization failed: {exc}',
+                        'code': 'SERIALIZE_ERROR'
+                    }) + '\n')
+                    stdout.flush()
             except Exception:
                 pass
+
+    def handle_request(request, request_id, action):
+        """Process a single request. Runs in a worker thread for non-trivial
+        actions. Ping/shutdown stay on the main thread for immediacy."""
+        try:
+            if action == 'load_file':
+                req = LoadFileRequest(
+                    action='load_file',
+                    path=request.get('path', ''),
+                    _request_id=request_id or ''
+                )
+                def on_progress(pct, stage):
+                    _respond({'progress': pct, 'stage': stage}, request_id)
+                result = parser.parse_file(req.path, progress_callback=on_progress)
+                _respond(result, request_id)
+            elif action == 'load_slice':
+                req = LoadSliceRequest(
+                    action='load_slice',
+                    path=request.get('path', ''),
+                    variable=request.get('variable', ''),
+                    axis=request.get('axis', 0),
+                    index=request.get('index', 0),
+                    _request_id=request_id or ''
+                )
+                result = parser.load_slice(req.path, req.variable, req.axis, req.index)
+                _respond(result, request_id)
+            elif action == 'export_hdf5':
+                src_path = request.get('path', '')
+                variable = request.get('variable', '')
+                dest_path = request.get('dest_path', '')
+                if not src_path or not variable or not dest_path:
+                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'}, request_id)
+                    return
+                result = parser.export_hdf5(src_path, variable, dest_path)
+                _respond(result, request_id)
+            elif action == 'compare_files':
+                path1 = request.get('path1', '')
+                path2 = request.get('path2', '')
+                if not path1 or not path2:
+                    _respond({'success': False, 'error': 'Missing required fields: path1, path2', 'code': 'VALIDATION_ERROR'}, request_id)
+                    return
+                result = parser.compare_files(path1, path2)
+                _respond(result, request_id)
+            elif action == 'export_xlsx':
+                src_path = request.get('path', '')
+                variable = request.get('variable', '')
+                dest_path = request.get('dest_path', '')
+                if not src_path or not variable or not dest_path:
+                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'}, request_id)
+                    return
+                result = parser.export_xlsx(src_path, variable, dest_path)
+                _respond(result, request_id)
+            else:
+                _respond({'error': f'Unknown action: {action}', 'code': 'UNKNOWN_ACTION'}, request_id)
+        except (ValueError, TypeError) as e:
+            _respond({'error': str(e), 'code': 'VALIDATION_ERROR'}, request_id)
+        except Exception as e:
+            _respond({'error': str(e), 'code': 'INTERNAL_ERROR'}, request_id)
 
     # Emit a ready handshake so the host can resolve the startup promise
     # deterministically instead of waiting for arbitrary stdout data.
@@ -964,82 +1099,26 @@ def daemon_main() -> None:
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
-            stdout.write(json.dumps({'error': 'Invalid JSON'}) + '\n')
-            stdout.flush()
+            with stdout_lock:
+                stdout.write(json.dumps({'error': 'Invalid JSON'}) + '\n')
+                stdout.flush()
             continue
 
         request_id = request.get('_request_id')
         action = request.get('action')
 
+        # ping and shutdown stay on the main thread for immediacy; everything
+        # else is dispatched to the pool so concurrent requests don't queue.
         if action == 'ping':
             _respond({'action': 'pong'}, request_id)
         elif action == 'shutdown':
             _respond({'action': 'shutdown_ack'}, request_id)
             break
-        elif action == 'load_file':
-            try:
-                req = LoadFileRequest(
-                    action='load_file',
-                    path=request.get('path', ''),
-                    _request_id=request_id or ''
-                )
-                def on_progress(pct, stage):
-                    _respond({'progress': pct, 'stage': stage}, request_id)
-                result = parser.parse_file(req.path, progress_callback=on_progress)
-                _respond(result, request_id)
-            except (ValueError, TypeError) as e:
-                _respond({'error': str(e), 'code': 'VALIDATION_ERROR'}, request_id)
-        elif action == 'load_slice':
-            try:
-                req = LoadSliceRequest(
-                    action='load_slice',
-                    path=request.get('path', ''),
-                    variable=request.get('variable', ''),
-                    axis=request.get('axis', 0),
-                    index=request.get('index', 0),
-                    _request_id=request_id or ''
-                )
-                result = parser.load_slice(req.path, req.variable, req.axis, req.index)
-                _respond(result, request_id)
-            except (ValueError, TypeError) as e:
-                _respond({'error': str(e), 'code': 'VALIDATION_ERROR'}, request_id)
-        elif action == 'export_hdf5':
-            try:
-                src_path = request.get('path', '')
-                variable = request.get('variable', '')
-                dest_path = request.get('dest_path', '')
-                if not src_path or not variable or not dest_path:
-                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'}, request_id)
-                    continue
-                result = parser.export_hdf5(src_path, variable, dest_path)
-                _respond(result, request_id)
-            except Exception as e:
-                _respond({'error': str(e), 'code': 'EXPORT_ERROR'}, request_id)
-        elif action == 'compare_files':
-            try:
-                path1 = request.get('path1', '')
-                path2 = request.get('path2', '')
-                if not path1 or not path2:
-                    _respond({'success': False, 'error': 'Missing required fields: path1, path2', 'code': 'VALIDATION_ERROR'}, request_id)
-                    continue
-                result = parser.compare_files(path1, path2)
-                _respond(result, request_id)
-            except Exception as e:
-                _respond({'success': False, 'error': str(e), 'code': 'COMPARE_ERROR'}, request_id)
-        elif action == 'export_xlsx':
-            try:
-                src_path = request.get('path', '')
-                variable = request.get('variable', '')
-                dest_path = request.get('dest_path', '')
-                if not src_path or not variable or not dest_path:
-                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'}, request_id)
-                    continue
-                result = parser.export_xlsx(src_path, variable, dest_path)
-                _respond(result, request_id)
-            except Exception as e:
-                _respond({'error': str(e), 'code': 'EXPORT_ERROR'}, request_id)
         else:
-            _respond({'error': f'Unknown action: {action}', 'code': 'UNKNOWN_ACTION'}, request_id)
+            executor.submit(handle_request, request, request_id, action)
+
+    # Clean shutdown: wait for in-flight workers before exiting.
+    executor.shutdown(wait=True)
 
 
 def main() -> None:

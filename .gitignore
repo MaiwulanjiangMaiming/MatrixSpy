@@ -10,6 +10,5 @@ Thumbs.db
 .claude/
 test_files/
 test_output.json
-tests/
 __pycache__/
 *.pyc

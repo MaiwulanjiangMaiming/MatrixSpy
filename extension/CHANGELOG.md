@@ -8,6 +8,23 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.8] - 2026-06-28
+
+### Changed
+
+- **Daemon thread pool** — `daemon_main` now dispatches `load_file` / `load_slice` / `export_*` / `compare_files` to a `ThreadPoolExecutor` (4 workers) instead of processing sequentially. A long-running parse on one file no longer blocks a slice request for another. `HighPerfMatParser` is stateless (each call opens its own file), so concurrent access is safe. stdout writes are serialized by a `threading.Lock` so response lines never interleave. `ping` / `shutdown` stay on the main thread for immediacy.
+- **Large-array statistics sampling** — arrays with >10M elements now use a deterministic 1M-element random sample (fixed seed for reproducibility) instead of computing exact `nanpercentile` / `nanstd` on the full array. This reduces blocking time from seconds to milliseconds for very large arrays. `memory_mb` stays exact (it's just `nbytes`). The result includes `note: 'Estimated from sample'` so the UI can indicate the estimate.
+- **Sparsity without temporary array** — `_get_stats` now computes sparsity as `(arr.size - np.count_nonzero(arr)) / arr.size` instead of `np.count_nonzero(arr == 0) / arr.size`. This avoids materializing a temporary boolean array the same size as the input, halving peak memory for sparsity computation on large arrays.
+
+### Fixed
+
+- **Stale test assertions** — `test_serializer.py` expected NaN/Inf to be serialized as `None`, but the serializer returns `"NaN"` / `"Inf"` / `"-Inf"` strings (since v1.5.6). Tests updated to match actual behavior.
+- **Daemon tests missed ready handshake** — `test_daemon.py` fixtures now consume the `{"action":"ready"}` handshake before yielding, and `read_result` skips progress messages to reach the final response. Previously the first `read_response` captured the ready signal and failed with `KeyError: 'success'`.
+
+### Added
+
+- **Statistics test suite** — `tests/unit/python/test_stats.py` with 12 tests covering sparsity correctness (all-zero, all-nonzero, mixed, integer, NaN handling), sampling path threshold, reproducibility, accuracy tolerance, complex arrays, and JSON serializability.
+
 ## [1.5.7] - 2026-06-28
 
 ### Changed
