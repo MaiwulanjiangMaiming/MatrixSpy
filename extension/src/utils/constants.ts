@@ -19,19 +19,6 @@ export const CONFIG_KEYS = {
     MAX_DATA_SIZE: 'matrixspy.maxDataSize'
 } as const;
 
-export const STORAGE_KEYS = {
-    SIDEBAR_COLLAPSED: 'matViewerSidebarCollapsed',
-    THEME: 'matViewerTheme',
-    DISPLAY_MODE: 'matViewerDisplayMode',
-    VIEW_MODE: 'matViewerViewMode',
-    AXIS: 'matViewerAxis',
-    SLICE: 'matViewerSlice',
-    SHOW_COUNT_1D: 'matViewerShowCount1D',
-    SHOW_ROWS_2D: 'matViewerShowRows2D',
-    SHOW_COLS_2D: 'matViewerShowCols2D',
-    COLORMAP: 'matViewerColormap'
-} as const;
-
 export const PYTHON_SCRIPT = 'high_perf_parser.py';
 export const PYTHON_TIMEOUT = 60000;
 

@@ -18,14 +18,33 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: pip install scipy numpy h5py mat73 ruff mypy
+        run: pip install scipy numpy h5py mat73 ruff mypy pytest
       - name: Ruff check
         run: ruff check extension/python/
       - name: Mypy check
         run: mypy extension/python/high_perf_parser.py --ignore-missing-imports --no-error-summary 2>&1
 
-  typescript-compile:
+  python-test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: pip install scipy numpy h5py mat73 pytest
+      - name: Run pytest
+        run: pytest tests/ -v
+
+  typescript-compile:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,7 +60,7 @@ jobs:
         run: cd extension && npm test
 
   package:
-    needs: [python-lint, typescript-compile]
+    needs: [python-lint, python-test, typescript-compile]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

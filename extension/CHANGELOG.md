@@ -8,6 +8,25 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.10] - 2026-06-28
+
+### Added
+
+- **exportData test suite** — `src/__tests__/exportData.test.ts` with 32 tests covering the real `convertToCSV` / `formatCSVValue` / `convertToNPY` / `convertToPNG` functions (previously `core.test.ts` tested local duplicate copies, not the production code). Covers CSV escaping (comma/quote/newline), complex number formatting (±imaginary, Inf), NaN/Inf pass-through, NPY magic/header/dtype/shape, 3D+ and complex rejection, PNG signature/IHDR dimensions, grayscale normalization, and uniform-value fallback.
+- **PythonBridge protocol test suite** — `src/__tests__/pythonBridge.test.ts` with 12 white-box tests for the stdout protocol parser: ready handshake recognition, per-requestId response routing, per-requestId progress routing (no crosstalk), progress stage defaulting, final-response cleanup, partial-line buffering across chunks, multi-line chunk parsing, unparseable-line skipping, empty-line handling, unknown-requestId drop, and stdout buffer truncation (partial-tail preservation + no-newline drop).
+- **CI pytest job** — `.github/workflows/ci.yml` now runs `pytest tests/ -v` in a dedicated `python-test` job. Previously CI only ran ruff + mypy on the Python code; the 40-test pytest suite was never exercised in CI.
+- **CI cross-platform matrix** — the `typescript-compile` job now runs on ubuntu/macos/windows (`fail-fast: false`) instead of ubuntu-only, catching platform-specific issues in the Python-path fallback logic and module resolution.
+
+### Fixed
+
+- **NPY header length field** — `convertToNPY` wrote `10 + headerLen + padding` (including the 10-byte preamble) into the 2-byte header length field, but the NPY v1 spec requires just the header *string* length (`headerLen + padding`). NumPy readers would skip 10 bytes into the data section, corrupting every exported NPY file. The buffer allocation is also tightened to `10 + headerStrLen + data` (was 8 bytes too large with harmless trailing zeros). Exposed by the new exportData test suite.
+
+### Changed
+
+- **Pure export functions exported** — `convertToCSV`, `formatCSVValue`, `convertToNPY`, `convertToPNG` are now `export function` so they can be tested directly instead of via duplicate local copies.
+- **core.test.ts deduplicated** — removed the local `convertToNPY` / `encodeGrayscalePNG` / `createChunk` copies (which contained the same NPY header-length bug) now that the real functions are tested in `exportData.test.ts`. Only the Message-types tests remain.
+- **Dead STORAGE_KEYS removed** — `constants.ts` exported a `STORAGE_KEYS` map with `matViewer*` key names that was never imported anywhere and was stale after the v1.5.9 migration to `vscode.getState/setState` (which uses short keys like `displayMode`).
+
 ## [1.5.9] - 2026-06-28
 
 ### Changed

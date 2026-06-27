@@ -256,7 +256,7 @@ async function exportXlsx(filePath: string, selectedVar: string, saveUri: vscode
 // Callers should use `vscode.commands.executeCommand('matrixspy.export')`
 // or `exportCommand(presetFormat)` directly.
 
-function convertToCSV(data: MatVariable): string {
+export function convertToCSV(data: MatVariable): string {
     if (!data || data._type !== 'ndarray' || !data.data) {
         return '';
     }
@@ -282,7 +282,7 @@ function convertToCSV(data: MatVariable): string {
     }).join('\n');
 }
 
-function formatCSVValue(v: any): string {
+export function formatCSVValue(v: any): string {
     if (v === null || v === undefined) {
         return '';
     }
@@ -305,7 +305,7 @@ function formatCSVValue(v: any): string {
     return str;
 }
 
-function convertToNPY(data: MatVariable): Buffer | null {
+export function convertToNPY(data: MatVariable): Buffer | null {
     if (!data || data._type !== 'ndarray' || !data.data) {
         return null;
     }
@@ -357,9 +357,14 @@ function convertToNPY(data: MatVariable): Buffer | null {
         const header = `{'descr': '${dtype}', 'fortran_order': False, 'shape': (${shape.join(', ')},), }`;
         const headerLen = header.length;
         const padding = (64 - ((10 + headerLen) % 64)) % 64;
-        const totalHeaderLen = 10 + headerLen + padding;
+        // NPY v1: the 2-byte length field holds the header *string* length
+        // (header + padding), NOT including the 10-byte preamble (magic +
+        // version + length field). Writing 10+headerLen+padding here would
+        // make readers skip 10 bytes into the data section.
+        const headerStrLen = headerLen + padding;
 
-        const buffer = Buffer.alloc(8 + totalHeaderLen + flatData.length * 8);
+        // Layout: 10-byte preamble + headerStrLen + data.
+        const buffer = Buffer.alloc(10 + headerStrLen + flatData.length * 8);
         let offset = 0;
 
         buffer.writeUInt8(0x93, offset++);
@@ -367,10 +372,10 @@ function convertToNPY(data: MatVariable): Buffer | null {
         offset += 5;
         buffer.writeUInt8(0x01, offset++);
         buffer.writeUInt8(0x00, offset++);
-        buffer.writeUInt16LE(totalHeaderLen, offset);
+        buffer.writeUInt16LE(headerStrLen, offset);
         offset += 2;
         buffer.write(header + ' '.repeat(padding), offset);
-        offset += headerLen + padding;
+        offset += headerStrLen;
 
         for (let i = 0; i < flatData.length; i++) {
             buffer.writeDoubleLE(flatData[i], offset);
@@ -383,7 +388,7 @@ function convertToNPY(data: MatVariable): Buffer | null {
     }
 }
 
-function convertToPNG(data: MatVariable): Buffer | null {
+export function convertToPNG(data: MatVariable): Buffer | null {
     if (!data || data._type !== 'ndarray' || !data.data) {
         return null;
     }
