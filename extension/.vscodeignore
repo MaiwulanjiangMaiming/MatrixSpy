@@ -3,8 +3,12 @@
 src/**
 .gitignore
 tsconfig.json
+tsconfig.eslint.json
 .eslintrc.js
 .vscodeignore
+jest.config.js
 node_modules/**
 *.map
 *.vsix
+webview-dist/**
+__tests__/**

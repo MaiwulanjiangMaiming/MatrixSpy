@@ -167,7 +167,7 @@ store.subscribe(function(key, oldVal, newVal) {
 store.restore();
 store.snapshot();
 
-var sliceCache = {};
+var sliceCache = new Map();
 var SLICE_CACHE_MAX = 10;
 var prefetchQueue = [];
 var isPrefetching = false;
@@ -180,20 +180,32 @@ function sliceCacheKey(axis, index) {
 
 function sliceCachePut(axis, index, data) {
     var key = sliceCacheKey(axis, index);
-    sliceCache[key] = data;
-    var keys = Object.keys(sliceCache);
-    if (keys.length > SLICE_CACHE_MAX) {
-        delete sliceCache[keys[0]];
+    // Map preserves insertion order; re-putting an existing key refreshes
+    // its position so recently accessed entries survive eviction.
+    if (sliceCache.has(key)) {
+        sliceCache.delete(key);
+    }
+    sliceCache.set(key, data);
+    if (sliceCache.size > SLICE_CACHE_MAX) {
+        // Evict the oldest entry (first inserted key) — true LRU since
+        // sliceCacheGet also re-inserts on access.
+        var oldestKey = sliceCache.keys().next().value;
+        sliceCache.delete(oldestKey);
     }
 }
 
 function sliceCacheGet(axis, index) {
     var key = sliceCacheKey(axis, index);
-    return sliceCache[key] || null;
+    if (!sliceCache.has(key)) return null;
+    // Re-insert to mark as most-recently-used for true LRU ordering.
+    var data = sliceCache.get(key);
+    sliceCache.delete(key);
+    sliceCache.set(key, data);
+    return data;
 }
 
 function sliceCacheClear() {
-    sliceCache = {};
+    sliceCache.clear();
     prefetchQueue = [];
     lastSliceIndex = -1;
     lastSliceDirection = 1;
@@ -560,7 +572,7 @@ function selectTreeItem(path) {
         varInfo = {
             shape: value.shape || null,
             dtype: value.dtype || null,
-            memory_mb: value.stats && value.stats.memory_mb ? value.stats.memory_mb : null
+            memory_mb: (value.statistics && value.statistics.memory_mb) ? value.statistics.memory_mb : ((value.stats && value.stats.memory_mb) ? value.stats.memory_mb : null)
         };
     }
     vscode.postMessage({
@@ -3481,7 +3493,7 @@ function handleError(message) {
     } else if (lowerError.indexOf('import') !== -1 || lowerError.indexOf('module') !== -1 || lowerError.indexOf('no module') !== -1) {
         hint = '<div class="error-hint"><strong>Hint:</strong> Missing Python package. Run: <code>pip install scipy numpy h5py mat73</code></div>';
     } else if (lowerError.indexOf('memory') !== -1 || lowerError.indexOf('too large') !== -1) {
-        hint = '<div class="error-hint"><strong>Hint:</strong> The file is too large to load. Try using a smaller file or increase <code>matrixspy.maxArrayElements</code> in settings.</div>';
+        hint = '<div class="error-hint"><strong>Hint:</strong> The file is too large to load. Try using a smaller file or increase <code>matrixspy.maxFileSizeMB</code> in settings.</div>';
     }
     mainContent.innerHTML = '<div class="error"><div class="error-message">Error: ' + escapeHtml(errorText) + '</div>' + hint + '</div>';
 }
@@ -3887,6 +3899,16 @@ document.addEventListener('keydown', function(e) {
 });
 
 window.addEventListener('message', handleMessage);
+
+// Ensure the render Web Worker is terminated when the webview is unloaded
+// (e.g. panel hidden with retainContextWhenHidden: false). Without this,
+// repeatedly opening/closing MAT files could leak Worker instances until GC.
+window.addEventListener('unload', function() {
+    if (renderWorkerInstance) {
+        try { renderWorkerInstance.terminate(); } catch (e) { /* noop */ }
+        renderWorkerInstance = null;
+    }
+});
 document.addEventListener('click', function() { hideContextMenu(); });
 `;
 }

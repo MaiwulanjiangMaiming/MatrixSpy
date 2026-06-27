@@ -1,11 +1,16 @@
 import sys
 import scipy.io
 import numpy as np
+import warnings
 from typing import Dict, Any, Optional, Literal
 from dataclasses import dataclass
 import json
 import base64
 import h5py
+
+# Suppress numpy RuntimeWarnings that are expected when computing
+# statistics on all-NaN or all-Inf arrays (e.g. nanmin of [NaN, NaN]).
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
 
 
 class MatParseError(Exception):
@@ -52,35 +57,40 @@ class HighPerfMatParser:
                 raise MatParseError('FILE_NOT_FOUND', f'File not found: {file_path}')
 
             if progress_callback:
-                progress_callback(10, 'detecting_format')
+                progress_callback(5, 'detecting_format')
             version = self._detect_version(file_path)
             result = {}
 
             if progress_callback:
-                progress_callback(30, 'parsing_structure')
+                progress_callback(15, 'loading_variables')
 
-            if progress_callback:
-                progress_callback(60, 'loading_variables')
+            def _report_var_progress(idx, total):
+                if progress_callback and total > 0:
+                    # Map variable index to 15..85 range, leaving room for
+                    # pre/post steps so the bar never stalls at 60%.
+                    pct = 15 + int(70 * (idx / total))
+                    progress_callback(min(pct, 85), 'loading_variables')
 
             if version == 'v7.3':
                 try:
                     import mat73
                     data = mat73.loadmat(file_path, use_attrdict=True)
-                    for key in data:
-                        if key.startswith('#') or key.startswith('__'):
-                            continue
+                    var_keys = [k for k in data if not (k.startswith('#') or k.startswith('__'))]
+                    total = len(var_keys)
+                    for i, key in enumerate(var_keys):
                         try:
                             result[key] = self._process_value(data[key], is_root=True)
                         except Exception as e:
                             print(f"Error processing variable '{key}': {e}", file=sys.stderr)
                             result[key] = {'_type': 'error', 'error': str(e)}
+                        _report_var_progress(i + 1, total)
                     with h5py.File(file_path, 'r') as f:
                         self._fill_none_from_hdf5(result, f)
                 except ImportError:
                     with h5py.File(file_path, 'r') as f:
-                        for key in f.keys():
-                            if key.startswith('#'):
-                                continue
+                        var_keys = [k for k in f.keys() if not k.startswith('#')]
+                        total = len(var_keys)
+                        for i, key in enumerate(var_keys):
                             try:
                                 item = f[key]
                                 if isinstance(item, h5py.Dataset):
@@ -90,19 +100,22 @@ class HighPerfMatParser:
                             except Exception as e:
                                 print(f"Error processing variable '{key}': {e}", file=sys.stderr)
                                 result[key] = {'_type': 'error', 'error': str(e)}
+                            _report_var_progress(i + 1, total)
             else:
                 data = scipy.io.loadmat(file_path, simplify_cells=False,
                                        struct_as_record=False, squeeze_me=True)
-                for key, value in data.items():
-                    if not key.startswith('__') and not key.startswith('#'):
-                        try:
-                            result[key] = self._process_value(value, is_root=True)
-                        except Exception as e:
-                            print(f"Error processing variable '{key}': {e}", file=sys.stderr)
-                            result[key] = {'_type': 'error', 'error': str(e)}
+                var_keys = [k for k in data.keys() if not (k.startswith('__') or k.startswith('#'))]
+                total = len(var_keys)
+                for i, key in enumerate(var_keys):
+                    try:
+                        result[key] = self._process_value(data[key], is_root=True)
+                    except Exception as e:
+                        print(f"Error processing variable '{key}': {e}", file=sys.stderr)
+                        result[key] = {'_type': 'error', 'error': str(e)}
+                    _report_var_progress(i + 1, total)
 
             if progress_callback:
-                progress_callback(90, 'generating_preview')
+                progress_callback(95, 'generating_preview')
 
             return {
                 'success': True,
@@ -431,15 +444,17 @@ class HighPerfMatParser:
             return int(value)
         elif isinstance(value, (np.floating,)):
             val = float(value)
-            if np.isnan(val) or np.isinf(val):
-                return None
+            if np.isnan(val):
+                return "NaN"
+            elif np.isinf(val):
+                return "Inf" if val > 0 else "-Inf"
             return val
         elif isinstance(value, (complex, np.complexfloating)):
             real_val = float(value.real)
             imag_val = float(value.imag)
             return {
-                'real': None if (np.isnan(real_val) or np.isinf(real_val)) else real_val,
-                'imag': None if (np.isnan(imag_val) or np.isinf(imag_val)) else imag_val,
+                'real': "NaN" if np.isnan(real_val) else ("Inf" if np.isinf(real_val) and real_val > 0 else ("-Inf" if np.isinf(real_val) else real_val)),
+                'imag': "NaN" if np.isnan(imag_val) else ("Inf" if np.isinf(imag_val) and imag_val > 0 else ("-Inf" if np.isinf(imag_val) else imag_val)),
                 '_type': 'complex'
             }
         elif isinstance(value, np.bool_):
@@ -468,8 +483,10 @@ class HighPerfMatParser:
                 )
             return result
         elif isinstance(value, float):
-            if np.isnan(value) or np.isinf(value):
-                return None
+            if np.isnan(value):
+                return "NaN"
+            elif np.isinf(value):
+                return "Inf" if value > 0 else "-Inf"
             return value
         elif isinstance(value, int):
             return value
@@ -497,7 +514,12 @@ class HighPerfMatParser:
         if should_load:
             if np.iscomplexobj(arr):
                 result['complex'] = True
-                result['data'] = self._convert_complex_array(arr)
+                complex_data = self._convert_complex_array(arr)
+                if complex_data is None:
+                    result['data'] = None
+                    result['error'] = 'Complex array exceeds 1M element preview limit'
+                else:
+                    result['data'] = complex_data
             else:
                 result['data'] = self._convert_array(arr)
             result['statistics'] = self._get_stats(arr)
@@ -519,28 +541,37 @@ class HighPerfMatParser:
         if isinstance(data, list):
             return [self._replace_nan_inf(item) for item in data]
         elif isinstance(data, float):
-            if np.isnan(data) or np.isinf(data):
-                return None
+            if np.isnan(data):
+                return "NaN"
+            elif np.isinf(data):
+                return "Inf" if data > 0 else "-Inf"
         return data
 
     def _convert_complex_array(self, arr: np.ndarray) -> Any:
         if arr.size > 1000000:
             return None
 
+        def _safe_component(val: float) -> Any:
+            if np.isnan(val):
+                return "NaN"
+            elif np.isinf(val):
+                return "Inf" if val > 0 else "-Inf"
+            return val
+
         def convert_recursive(arr_slice):
             if arr_slice.ndim == 0:
                 real_val = float(arr_slice.real)
                 imag_val = float(arr_slice.imag)
                 return {
-                    'real': None if (np.isnan(real_val) or np.isinf(real_val)) else real_val,
-                    'imag': None if (np.isnan(imag_val) or np.isinf(imag_val)) else imag_val,
+                    'real': _safe_component(real_val),
+                    'imag': _safe_component(imag_val),
                     '_type': 'complex'
                 }
             elif arr_slice.ndim == 1:
                 return [
                     {
-                        'real': None if (np.isnan(float(x.real)) or np.isinf(float(x.real))) else float(x.real),
-                        'imag': None if (np.isnan(float(x.imag)) or np.isinf(float(x.imag))) else float(x.imag),
+                        'real': _safe_component(float(x.real)),
+                        'imag': _safe_component(float(x.imag)),
                         '_type': 'complex'
                     }
                     for x in arr_slice
@@ -893,8 +924,37 @@ def daemon_main() -> None:
     stdin = sys.stdin
     stdout = sys.stdout
 
+    def _respond(obj, request_id=None):
+        """Send a JSON response line. Wrapped in try/except so a serialization
+        failure or broken pipe never crashes the daemon loop."""
+        try:
+            if request_id is not None:
+                obj['_request_id'] = request_id
+            stdout.write(json.dumps(obj) + '\n')
+            stdout.flush()
+        except Exception as exc:
+            # Last-resort: try to write a minimal error line; if even that
+            # fails (broken pipe), just give up silently.
+            try:
+                stdout.write(json.dumps({
+                    'success': False,
+                    'error': f'Daemon response serialization failed: {exc}',
+                    'code': 'SERIALIZE_ERROR'
+                }) + '\n')
+                stdout.flush()
+            except Exception:
+                pass
+
+    # Emit a ready handshake so the host can resolve the startup promise
+    # deterministically instead of waiting for arbitrary stdout data.
+    _respond({'action': 'ready'})
+
     while True:
         line = stdin.readline()
+        # Guard against unbounded buffer growth from malformed peers.
+        if len(line) > 64 * 1024 * 1024:
+            _respond({'error': 'Request line too long', 'code': 'REQUEST_TOO_LARGE'})
+            continue
         if not line:
             break
         line = line.strip()
@@ -911,16 +971,10 @@ def daemon_main() -> None:
         request_id = request.get('_request_id')
         action = request.get('action')
 
-        def _respond(obj):
-            if request_id is not None:
-                obj['_request_id'] = request_id
-            stdout.write(json.dumps(obj) + '\n')
-            stdout.flush()
-
         if action == 'ping':
-            _respond({'action': 'pong'})
+            _respond({'action': 'pong'}, request_id)
         elif action == 'shutdown':
-            _respond({'action': 'shutdown_ack'})
+            _respond({'action': 'shutdown_ack'}, request_id)
             break
         elif action == 'load_file':
             try:
@@ -930,11 +984,11 @@ def daemon_main() -> None:
                     _request_id=request_id or ''
                 )
                 def on_progress(pct, stage):
-                    _respond({'progress': pct, 'stage': stage})
+                    _respond({'progress': pct, 'stage': stage}, request_id)
                 result = parser.parse_file(req.path, progress_callback=on_progress)
-                _respond(result)
+                _respond(result, request_id)
             except (ValueError, TypeError) as e:
-                _respond({'error': str(e), 'code': 'VALIDATION_ERROR'})
+                _respond({'error': str(e), 'code': 'VALIDATION_ERROR'}, request_id)
         elif action == 'load_slice':
             try:
                 req = LoadSliceRequest(
@@ -946,46 +1000,46 @@ def daemon_main() -> None:
                     _request_id=request_id or ''
                 )
                 result = parser.load_slice(req.path, req.variable, req.axis, req.index)
-                _respond(result)
+                _respond(result, request_id)
             except (ValueError, TypeError) as e:
-                _respond({'error': str(e), 'code': 'VALIDATION_ERROR'})
+                _respond({'error': str(e), 'code': 'VALIDATION_ERROR'}, request_id)
         elif action == 'export_hdf5':
             try:
                 src_path = request.get('path', '')
                 variable = request.get('variable', '')
                 dest_path = request.get('dest_path', '')
                 if not src_path or not variable or not dest_path:
-                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'})
+                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'}, request_id)
                     continue
                 result = parser.export_hdf5(src_path, variable, dest_path)
-                _respond(result)
+                _respond(result, request_id)
             except Exception as e:
-                _respond({'error': str(e), 'code': 'EXPORT_ERROR'})
+                _respond({'error': str(e), 'code': 'EXPORT_ERROR'}, request_id)
         elif action == 'compare_files':
             try:
                 path1 = request.get('path1', '')
                 path2 = request.get('path2', '')
                 if not path1 or not path2:
-                    _respond({'success': False, 'error': 'Missing required fields: path1, path2', 'code': 'VALIDATION_ERROR'})
+                    _respond({'success': False, 'error': 'Missing required fields: path1, path2', 'code': 'VALIDATION_ERROR'}, request_id)
                     continue
                 result = parser.compare_files(path1, path2)
-                _respond(result)
+                _respond(result, request_id)
             except Exception as e:
-                _respond({'success': False, 'error': str(e), 'code': 'COMPARE_ERROR'})
+                _respond({'success': False, 'error': str(e), 'code': 'COMPARE_ERROR'}, request_id)
         elif action == 'export_xlsx':
             try:
                 src_path = request.get('path', '')
                 variable = request.get('variable', '')
                 dest_path = request.get('dest_path', '')
                 if not src_path or not variable or not dest_path:
-                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'})
+                    _respond({'error': 'Missing required fields: path, variable, dest_path', 'code': 'VALIDATION_ERROR'}, request_id)
                     continue
                 result = parser.export_xlsx(src_path, variable, dest_path)
-                _respond(result)
+                _respond(result, request_id)
             except Exception as e:
-                _respond({'error': str(e), 'code': 'EXPORT_ERROR'})
+                _respond({'error': str(e), 'code': 'EXPORT_ERROR'}, request_id)
         else:
-            _respond({'error': f'Unknown action: {action}', 'code': 'UNKNOWN_ACTION'})
+            _respond({'error': f'Unknown action: {action}', 'code': 'UNKNOWN_ACTION'}, request_id)
 
 
 def main() -> None:

@@ -2,7 +2,8 @@ module.exports = {
     root: true,
     env: {
         node: true,
-        es6: true
+        es6: true,
+        jest: true
     },
     extends: [
         'eslint:recommended'
@@ -12,10 +13,11 @@ module.exports = {
     parserOptions: {
         ecmaVersion: 2020,
         sourceType: 'module',
-        project: './tsconfig.json'
+        project: './tsconfig.eslint.json'
     },
     rules: {
         '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+        'no-unused-vars': 'off',
         '@typescript-eslint/no-explicit-any': 'warn',
         '@typescript-eslint/explicit-function-return-type': 'off',
         '@typescript-eslint/explicit-module-boundary-types': 'off',

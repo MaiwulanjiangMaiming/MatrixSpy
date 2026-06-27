@@ -22,7 +22,7 @@ jobs:
       - name: Ruff check
         run: ruff check extension/python/
       - name: Mypy check
-        run: mypy extension/python/high_perf_parser.py --ignore-missing-imports --no-error-summary 2>&1 || true
+        run: mypy extension/python/high_perf_parser.py --ignore-missing-imports --no-error-summary 2>&1
 
   typescript-compile:
     runs-on: ubuntu-latest
@@ -35,6 +35,10 @@ jobs:
         run: cd extension && npm ci
       - name: Compile
         run: cd extension && npm run compile
+      - name: Lint
+        run: cd extension && npm run lint
+      - name: Test
+        run: cd extension && npm test
 
   package:
     needs: [python-lint, typescript-compile]

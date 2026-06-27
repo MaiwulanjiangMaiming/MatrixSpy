@@ -8,6 +8,25 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.6] - 2026-06-28
+
+### Fixed
+
+- **Status bar memory display** — `varInfo.memory_mb` was always `null` because the webview read `value.stats` while the Python backend returns the field as `value.statistics`. Now checks both names so memory usage shows correctly in the status bar.
+- **Wrong config key in error hint** — the "file too large" error suggested increasing `matrixspy.maxArrayElements`, which does not exist. Corrected to `matrixspy.maxFileSizeMB`.
+- **Mypy CI bypass** — removed `|| true` from the mypy step so type-check failures actually block CI.
+
+### Changed
+
+- **True LRU slice cache** — `sliceCache` rewritten from a plain object (FIFO eviction) to a `Map` with delete-and-re-insert on access, so frequently viewed slices survive eviction instead of being dropped in insertion order.
+- **Windows Python interpreter fallback** — `checkDependencies` now tries the configured path, then platform-appropriate candidates (`python`, `py`, `python3` on Windows; `python3`, `python` elsewhere). The `PythonBridge.pythonPath` getter also maps the default `python3` to `python` on Windows so the daemon starts with the right interpreter. This eliminates the misleading "Python not found" error for Windows users who never touched the setting.
+- **CI runs tests and lint** — the `typescript-compile` job now executes `npm run lint` and `npm test` in addition to `tsc`, so regressions are caught before packaging.
+- **Tighter `.vscodeignore`** — excludes `tsconfig.eslint.json`, `jest.config.js`, `webview-dist/**`, and `__tests__/**` from the packaged VSIX to reduce extension size.
+
+### Added
+
+- **Web Worker cleanup on unload** — the render Worker is now `terminate()`d on `window.unload`, preventing Worker leaks when MAT file panels are repeatedly opened and closed with `retainContextWhenHidden: false`.
+
 ## [1.5.5] - 2026-06-22
 
 ### Security

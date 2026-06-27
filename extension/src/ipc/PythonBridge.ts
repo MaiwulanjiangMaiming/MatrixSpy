@@ -18,18 +18,30 @@ interface PendingRequest {
     timer: ReturnType<typeof setTimeout>;
 }
 
+/** Optional per-request options for sendRequest. */
+interface SendRequestOptions {
+    /** Override the default 60s timeout. */
+    timeoutMs?: number;
+    /** Progress callback keyed by requestId so concurrent loads don't crosstalk. */
+    progressCallback?: (progress: number, stage: string) => void;
+}
+
 export class PythonBridge {
     private readonly scriptPath: string;
     private daemonProcess: ChildProcess | null = null;
     private disposed = false;
     private nextRequestId = 1;
     private pendingRequests = new Map<number, PendingRequest>();
+    /** Per-requestId progress callbacks. Keyed by requestId (not by file path)
+     *  so that two concurrent load_file calls never deliver each other's
+     *  progress events. */
+    private progressCallbacks = new Map<number, (progress: number, stage: string) => void>();
     private stdoutBuffer = '';
     private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
     private currentFilePath: string | null = null;
-    private readonly maxProcessTimeout = 60000;
+    /** Default request timeout. Long operations (load_file) override this. */
+    private readonly defaultTimeoutMs = 60000;
     private restarting = false;
-    private onProgressCallback: ((progress: number, stage: string) => void) | null = null;
     /** Singleton lock so concurrent callers don't spawn multiple daemons. */
     private startPromise: Promise<void> | null = null;
     /** Bounded stdout buffer to avoid unbounded memory growth on malformed peers. */
@@ -37,7 +49,7 @@ export class PythonBridge {
     /** Bound on a single request line length accepted from the daemon. */
     private static readonly MAX_FILE_SIZE_MB = 100;
     /** Last pythonPath used to spawn the daemon. Tracked so we can detect
-     *  setting changes and respawn the daemon with the new interpreter. */
+     *  setting changes and respawn the daemon with a new interpreter. */
     private lastPythonPath: string | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {
@@ -54,7 +66,15 @@ export class PythonBridge {
      */
     private get pythonPath(): string {
         const config = vscode.workspace.getConfiguration('matrixspy');
-        return config.get<string>('pythonPath', 'python3');
+        const configured = config.get<string>('pythonPath', 'python3');
+        // On Windows the default `python3` rarely exists; fall back to `python`
+        // for users who never touched the setting. If the user explicitly set
+        // a path, respect it as-is (checkDependencies will still try the
+        // platform fallbacks as a safety net).
+        if (configured === 'python3' && process.platform === 'win32') {
+            return 'python';
+        }
+        return configured;
     }
 
     static async checkDependencies(pythonPath: string): Promise<DependencyCheckResult> {
@@ -66,74 +86,111 @@ export class PythonBridge {
             allDependenciesMet: false
         };
 
+        // Try the configured interpreter first, then fall back to common
+        // candidates. On Windows the default `python3` rarely exists, so we
+        // also try `python` and the `py` launcher. This avoids a misleading
+        // "Python not found" error for users who never touched the setting.
+        let effectivePath: string | null = null;
+        let version: string | null = null;
+        for (const candidate of PythonBridge.pythonCandidates(pythonPath)) {
+            const probe = await PythonBridge.probePythonVersion(candidate, 5000);
+            if (probe.found) {
+                effectivePath = candidate;
+                version = probe.version;
+                break;
+            }
+        }
+        if (!effectivePath || !version) {
+            return result;
+        }
+
+        result.pythonFound = true;
+        result.pythonVersion = version;
+
         return new Promise((resolve) => {
-            const proc = spawn(pythonPath, ['--version']);
-            let stdout = '';
-            let stderr = '';
-
-            const timeoutId = setTimeout(() => {
-                proc.kill();
-                resolve(result);
-            }, 5000);
-
-            proc.stdout?.on('data', (data: Buffer) => {
-                stdout += data.toString();
-            });
-
-            proc.stderr?.on('data', (data: Buffer) => {
-                stderr += data.toString();
-            });
-
-            proc.on('close', async () => {
-                clearTimeout(timeoutId);
-
-                if (!stdout && !stderr) {
-                    resolve(result);
-                    return;
-                }
-
-                result.pythonFound = true;
-                result.pythonVersion = (stdout || stderr).trim();
-
-                const checkProc = spawn(pythonPath, [
-                    '-c',
-                    `import sys; packages = ['scipy', 'numpy', 'h5py', 'mat73']; missing = [];
+            const checkProc = spawn(effectivePath!, [
+                '-c',
+                `import sys; packages = ['scipy', 'numpy', 'h5py', 'mat73']; missing = [];
 for p in packages:
     try:
         __import__(p)
     except ImportError:
         missing.append(p)
 print(','.join(missing))`
-                ]);
+            ]);
 
-                let checkStdout = '';
+            let checkStdout = '';
 
-                const checkTimeoutId = setTimeout(() => {
-                    checkProc.kill();
-                    resolve(result);
-                }, 10000);
+            const checkTimeoutId = setTimeout(() => {
+                checkProc.kill();
+                resolve(result);
+            }, 10000);
 
-                checkProc.stdout?.on('data', (data: Buffer) => {
-                    checkStdout += data.toString();
-                });
-
-                checkProc.on('close', () => {
-                    clearTimeout(checkTimeoutId);
-                    const missingStr = checkStdout.trim();
-                    result.missingPackages = missingStr ? missingStr.split(',').filter(s => s) : [];
-                    result.allDependenciesMet = result.missingPackages.length === 0;
-                    resolve(result);
-                });
-
-                checkProc.on('error', () => {
-                    clearTimeout(checkTimeoutId);
-                    resolve(result);
-                });
+            checkProc.stdout?.on('data', (data: Buffer) => {
+                checkStdout += data.toString();
             });
 
+            checkProc.on('close', () => {
+                clearTimeout(checkTimeoutId);
+                const missingStr = checkStdout.trim();
+                result.missingPackages = missingStr ? missingStr.split(',').filter(s => s) : [];
+                result.allDependenciesMet = result.missingPackages.length === 0;
+                resolve(result);
+            });
+
+            checkProc.on('error', () => {
+                clearTimeout(checkTimeoutId);
+                resolve(result);
+            });
+        });
+    }
+
+    /**
+     * Build a de-duplicated list of Python interpreter candidates to try.
+     * The configured path is always first; platform-appropriate fallbacks
+     * follow so that Windows users with the default `python3` setting still
+     * get discovered via `python` or `py`.
+     */
+    private static pythonCandidates(configuredPath: string): string[] {
+        const isWin = process.platform === 'win32';
+        const fallback = isWin ? ['python', 'py', 'python3'] : ['python3', 'python'];
+        return Array.from(new Set([configuredPath, ...fallback]));
+    }
+
+    /**
+     * Probe a single Python candidate by spawning `--version`. Resolves with
+     * `found: true` and the version string on success, `found: false` on
+     * timeout, spawn error, or empty output.
+     */
+    private static probePythonVersion(candidate: string, timeoutMs: number): Promise<{ found: boolean; version: string | null }> {
+        return new Promise((resolve) => {
+            let proc: ChildProcess;
+            try {
+                proc = spawn(candidate, ['--version']);
+            } catch {
+                resolve({ found: false, version: null });
+                return;
+            }
+            let stdout = '';
+            let stderr = '';
+            const timeoutId = setTimeout(() => {
+                try { proc.kill(); } catch { /* noop */ }
+                resolve({ found: false, version: null });
+            }, timeoutMs);
+            proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
+            proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+            proc.on('close', () => {
+                clearTimeout(timeoutId);
+                const out = (stdout || stderr).trim();
+                if (!out) {
+                    resolve({ found: false, version: null });
+                } else {
+                    resolve({ found: true, version: out });
+                }
+            });
             proc.on('error', () => {
                 clearTimeout(timeoutId);
-                resolve(result);
+                resolve({ found: false, version: null });
             });
         });
     }
@@ -242,11 +299,19 @@ print(','.join(missing))`
 
     private handleStdoutData(data: Buffer): void {
         this.stdoutBuffer += data.toString();
-        // Guard against unbounded buffer growth if a peer ever sends a very
-        // long line without a newline.
+        // Guard against unbounded buffer growth. Instead of clearing the
+        // entire buffer (which loses all pending responses mid-stream),
+        // truncate to the tail after the last newline so the most recent
+        // in-progress line is preserved.
         if (this.stdoutBuffer.length > PythonBridge.MAX_STDOUT_BUFFER) {
-            this.stdoutBuffer = '';
-            console.warn('[MatrixSpy] stdout buffer exceeded limit, cleared.');
+            const lastNewline = this.stdoutBuffer.lastIndexOf('\n');
+            if (lastNewline >= 0) {
+                this.stdoutBuffer = this.stdoutBuffer.slice(lastNewline + 1);
+            } else {
+                // No newline at all — a single line is enormous. Drop it.
+                this.stdoutBuffer = '';
+            }
+            console.warn('[MatrixSpy] stdout buffer exceeded limit, truncated to last line.');
         }
         const lines = this.stdoutBuffer.split('\n');
         this.stdoutBuffer = lines.pop() || '';
@@ -273,8 +338,11 @@ print(','.join(missing))`
         const requestId = response._request_id;
 
         if (requestId !== undefined && 'progress' in response && !('success' in response)) {
-            if (this.onProgressCallback) {
-                this.onProgressCallback(response.progress, response.stage || '');
+            // Route progress to the specific request that registered it,
+            // so concurrent loads never receive each other's events.
+            const cb = this.progressCallbacks.get(requestId);
+            if (cb) {
+                cb(response.progress, response.stage || '');
             }
             return;
         }
@@ -282,6 +350,7 @@ print(','.join(missing))`
         if (requestId !== undefined && this.pendingRequests.has(requestId)) {
             const pending = this.pendingRequests.get(requestId)!;
             this.pendingRequests.delete(requestId);
+            this.progressCallbacks.delete(requestId);
             clearTimeout(pending.timer);
             pending.resolve(response);
         }
@@ -293,6 +362,7 @@ print(','.join(missing))`
             pending.reject(createError(reason, ERROR_CODES.UNKNOWN, null, true));
         }
         this.pendingRequests.clear();
+        this.progressCallbacks.clear();
     }
 
     private async handleCrashRecovery(): Promise<void> {
@@ -325,14 +395,20 @@ print(','.join(missing))`
             if (this.disposed || !this.daemonProcess || this.daemonProcess.exitCode !== null) {
                 return;
             }
+            // If there are pending requests, the daemon is alive and busy
+            // (e.g. parsing a large file). Skip the heartbeat ping to avoid
+            // killing a healthy-but-busy daemon whose ping response would
+            // be queued behind a long-running operation. The request itself
+            // is the liveness proof; its own timeout handles failures.
+            if (this.pendingRequests.size > 0) {
+                return;
+            }
 
             try {
-                const result = await Promise.race([
-                    this.sendRequest({ action: 'ping' }),
-                    new Promise<null>((_, reject) =>
-                        setTimeout(() => reject(new Error('Heartbeat timeout')), 5000)
-                    )
-                ]);
+                const result = await this.sendRequest(
+                    { action: 'ping' },
+                    { timeoutMs: 10000 }
+                );
 
                 if (!result || result.action !== 'pong') {
                     throw new Error('Invalid heartbeat response');
@@ -354,7 +430,7 @@ print(','.join(missing))`
         }
     }
 
-    private async sendRequest(request: object): Promise<any> {
+    private async sendRequest(request: object, options?: SendRequestOptions): Promise<any> {
         if (this.disposed) {
             throw createError('PythonBridge has been disposed', ERROR_CODES.UNKNOWN, null, false);
         }
@@ -376,12 +452,18 @@ print(','.join(missing))`
 
         const requestId = this.nextRequestId++;
         const requestWithId = { ...request, _request_id: requestId };
+        const timeoutMs = options?.timeoutMs ?? this.defaultTimeoutMs;
+
+        if (options?.progressCallback) {
+            this.progressCallbacks.set(requestId, options.progressCallback);
+        }
 
         return new Promise<any>((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pendingRequests.delete(requestId);
+                this.progressCallbacks.delete(requestId);
                 reject(createError('Daemon request timeout', ERROR_CODES.TIMEOUT, null, true));
-            }, this.maxProcessTimeout);
+            }, timeoutMs);
 
             this.pendingRequests.set(requestId, { resolve, reject, timer });
 
@@ -390,6 +472,7 @@ print(','.join(missing))`
                 this.daemonProcess!.stdin!.write(line);
             } catch (err) {
                 this.pendingRequests.delete(requestId);
+                this.progressCallbacks.delete(requestId);
                 clearTimeout(timer);
                 reject(createError(
                     `Failed to write to daemon stdin: ${err instanceof Error ? err.message : String(err)}`,
@@ -443,7 +526,10 @@ print(','.join(missing))`
         }
     }
 
-    async parseFile(filePath: string): Promise<ParserResult> {
+    async parseFile(
+        filePath: string,
+        progressCallback?: (progress: number, stage: string) => void
+    ): Promise<ParserResult> {
         if (this.disposed) {
             throw createError('PythonBridge has been disposed', ERROR_CODES.UNKNOWN, null, false);
         }
@@ -470,11 +556,19 @@ print(','.join(missing))`
 
         this.currentFilePath = filePath;
 
+        // Dynamic timeout: base 60s + 2s per MB, capped at 300s. This
+        // prevents false timeouts on large v7.3 files whose mat73.loadmat
+        // + per-variable processing can legitimately exceed 60s.
+        const timeoutMs = Math.min(60000 + fileSizeMB * 2000, 300000);
+
         try {
-            const result = await this.sendRequest({
-                action: 'load_file',
-                path: filePath
-            });
+            const result = await this.sendRequest(
+                {
+                    action: 'load_file',
+                    path: filePath
+                },
+                { timeoutMs, progressCallback }
+            );
 
             if (!result.success) {
                 throw createError(
@@ -509,13 +603,16 @@ print(','.join(missing))`
         }
 
         try {
-            const result = await this.sendRequest({
-                action: 'load_slice',
-                path: filePath,
-                variable: variableName,
-                axis,
-                index
-            });
+            const result = await this.sendRequest(
+                {
+                    action: 'load_slice',
+                    path: filePath,
+                    variable: variableName,
+                    axis,
+                    index
+                },
+                { timeoutMs: 30000 }
+            );
 
             if (!result.success) {
                 throw createError(
@@ -667,7 +764,7 @@ print(','.join(missing))`
         // Send shutdown BEFORE setting disposed=true, otherwise sendRequest
         // would reject immediately and the daemon would never receive it.
         this.stopHeartbeat();
-        this.onProgressCallback = null;
+        this.progressCallbacks.clear();
 
         if (this.daemonProcess && this.daemonProcess.exitCode === null) {
             try {
@@ -682,10 +779,6 @@ print(','.join(missing))`
         // Now mark disposed and reject any straggling pending requests.
         this.disposed = true;
         this.rejectAllPending('PythonBridge disposed');
-    }
-
-    setProgressCallback(callback: ((progress: number, stage: string) => void) | null): void {
-        this.onProgressCallback = callback;
     }
 
     /**
