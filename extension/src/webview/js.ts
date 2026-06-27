@@ -11,6 +11,20 @@ function isNumericOrNull(v) { return v === null || v === undefined || typeof v =
 const VERSION = '${version}';
 const vscode = acquireVsCodeApi();
 
+// Unified persistence via vscode.getState/setState. Previously localStorage
+// was used, but it is not scoped to the workspace and does not survive a
+// panel dispose/reopen cycle. vscode.setState is the documented webview API
+// for persisting state across hide/show.
+function readState(key, defaultVal) {
+    var s = vscode.getState() || {};
+    return s[key] !== undefined ? s[key] : defaultVal;
+}
+function persistState(key, value) {
+    var s = vscode.getState() || {};
+    s[key] = value;
+    vscode.setState(s);
+}
+
 // Global error handler - catches rendering errors and displays them
 window.onerror = function(msg, url, lineNo, colNo, error) {
     console.error('[MatrixSpy] Unhandled error:', msg, 'at line', lineNo);
@@ -37,25 +51,25 @@ const headerToggle = document.getElementById('headerToggle');
 const state = {
     currentVariableData: null,
     fullVariableData: null,
-    currentDisplayMode: localStorage.getItem('matViewerDisplayMode') || 'image',
-    currentViewMode: localStorage.getItem('matViewerViewMode') || 'magnitude',
-    currentAxis: parseInt(localStorage.getItem('matViewerAxis') || '2'),
-    currentSlice: parseInt(localStorage.getItem('matViewerSlice') || '0'),
-    currentShowCount1D: parseInt(localStorage.getItem('matViewerShowCount1D') || '50'),
-    currentShowRows2D: parseInt(localStorage.getItem('matViewerShowRows2D') || '50'),
-    currentShowCols2D: parseInt(localStorage.getItem('matViewerShowCols2D') || '20'),
+    currentDisplayMode: readState('displayMode', 'image'),
+    currentViewMode: readState('viewMode', 'magnitude'),
+    currentAxis: parseInt(readState('axis', '2')),
+    currentSlice: parseInt(readState('slice', '0')),
+    currentShowCount1D: parseInt(readState('showCount1D', '50')),
+    currentShowRows2D: parseInt(readState('showRows2D', '50')),
+    currentShowCols2D: parseInt(readState('showCols2D', '20')),
     currentFileData: null,
     currentActiveVariable: null,
-    sidebarCollapsed: localStorage.getItem('matViewerSidebarCollapsed') === 'true',
+    sidebarCollapsed: readState('sidebarCollapsed', false),
     currentFilePath: null,
     currentLoadedSliceData: null,
-    currentColormap: localStorage.getItem('matViewerColormap') || 'grayscale',
+    currentColormap: readState('colormap', 'grayscale'),
     expandedPaths: {},
     dirty: false,
     canvasScale: null,
     windowLevel: 0.5,
     windowWidth: 1.0,
-    current1DViewMode: localStorage.getItem('matViewer1DViewMode') || 'grid',
+    current1DViewMode: readState('viewMode1D', 'grid'),
     navigationPath: [],
     roiState: { active: false, startX: 0, startY: 0, endX: 0, endY: 0, dragging: false },
     currentStats: null
@@ -363,6 +377,22 @@ var COLORMAPS = {
 };
 
 var BUILTIN_COLORMAP_NAMES = ['grayscale','viridis','inferno','plasma','hot','jet','turbo','coolwarm','rdbu'];
+var COLORMAP_LABELS = { grayscale: 'Grayscale', viridis: 'Viridis', inferno: 'Inferno', plasma: 'Plasma', hot: 'Hot', jet: 'Jet', turbo: 'Turbo', coolwarm: 'Coolwarm', rdbu: 'RdBu' };
+
+function renderColormapOptions() {
+    var html = '';
+    for (var i = 0; i < BUILTIN_COLORMAP_NAMES.length; i++) {
+        var name = BUILTIN_COLORMAP_NAMES[i];
+        var label = COLORMAP_LABELS[name] || name;
+        html += '<option value="' + escapeHtml(name) + '"' + (state.currentColormap === name ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+    }
+    for (var cname in COLORMAPS) {
+        if (COLORMAPS.hasOwnProperty(cname) && BUILTIN_COLORMAP_NAMES.indexOf(cname) === -1) {
+            html += '<option value="' + escapeHtml(cname) + '"' + (state.currentColormap === cname ? ' selected' : '') + '>' + escapeHtml(cname) + '</option>';
+        }
+    }
+    return html;
+}
 
 var canvasRenderScheduled = false;
 var pendingCanvasData = null;
@@ -390,7 +420,7 @@ function toggleSidebar() {
         sidebar.classList.remove('collapsed');
         headerToggle.classList.remove('visible');
     }
-    localStorage.setItem('matViewerSidebarCollapsed', String(state.sidebarCollapsed));
+    persistState('sidebarCollapsed', state.sidebarCollapsed);
 }
 
 function getVariableIcon(value) {
@@ -542,9 +572,9 @@ function selectTreeItem(path) {
     state.currentActiveVariable = path;
     state.fullVariableData = value;
     state.currentVariableData = { name: parts[parts.length - 1] };
-    state.currentDisplayMode = localStorage.getItem('matViewerDisplayMode') || 'image';
-    state.currentViewMode = localStorage.getItem('matViewerViewMode') || 'magnitude';
-    state.currentAxis = parseInt(localStorage.getItem('matViewerAxis') || '2');
+    state.currentDisplayMode = readState('displayMode', 'image');
+    state.currentViewMode = readState('viewMode', 'magnitude');
+    state.currentAxis = parseInt(readState('axis', '2'));
     state.currentSlice = 0;
     state.currentLoadedSliceData = null;
     state.canvasScale = null;
@@ -2913,24 +2943,8 @@ function render2DArray(name, value) {
         html += '<div class="view-mode-selector">' +
             '<label>Colormap:</label>' +
             '<select id="colormapSelect" data-action="setColormap">' +
-            '<option value="grayscale"' + (state.currentColormap === 'grayscale' ? ' selected' : '') + '>Grayscale</option>' +
-            '<option value="viridis"' + (state.currentColormap === 'viridis' ? ' selected' : '') + '>Viridis</option>' +
-            '<option value="inferno"' + (state.currentColormap === 'inferno' ? ' selected' : '') + '>Inferno</option>' +
-            '<option value="plasma"' + (state.currentColormap === 'plasma' ? ' selected' : '') + '>Plasma</option>' +
-            '<option value="hot"' + (state.currentColormap === 'hot' ? ' selected' : '') + '>Hot</option>' +
-            '<option value="jet"' + (state.currentColormap === 'jet' ? ' selected' : '') + '>Jet</option>' +
-            '<option value="turbo"' + (state.currentColormap === 'turbo' ? ' selected' : '') + '>Turbo</option>' +
-            '<option value="coolwarm"' + (state.currentColormap === 'coolwarm' ? ' selected' : '') + '>Coolwarm</option>' +
-            '<option value="rdbu"' + (state.currentColormap === 'rdbu' ? ' selected' : '') + '>RdBu</option>';
-
-        var builtInNames = BUILTIN_COLORMAP_NAMES;
-        for (var cname in COLORMAPS) {
-            if (COLORMAPS.hasOwnProperty(cname) && builtInNames.indexOf(cname) === -1) {
-                html += '<option value="' + escapeHtml(cname) + '"' + (state.currentColormap === cname ? ' selected' : '') + '>' + escapeHtml(cname) + '</option>';
-            }
-        }
-
-        html += '</select>' +
+            renderColormapOptions() +
+            '</select>' +
             '</div>';
 
         html += '<div class="image-toolbar">' +
@@ -3031,23 +3045,8 @@ function renderNDArray(name, value) {
 
         html += '<label>Colormap:</label>' +
             '<select id="colormapSelect" data-action="setColormap">' +
-            '<option value="grayscale"' + (state.currentColormap === 'grayscale' ? ' selected' : '') + '>Grayscale</option>' +
-            '<option value="viridis"' + (state.currentColormap === 'viridis' ? ' selected' : '') + '>Viridis</option>' +
-            '<option value="inferno"' + (state.currentColormap === 'inferno' ? ' selected' : '') + '>Inferno</option>' +
-            '<option value="plasma"' + (state.currentColormap === 'plasma' ? ' selected' : '') + '>Plasma</option>' +
-            '<option value="hot"' + (state.currentColormap === 'hot' ? ' selected' : '') + '>Hot</option>' +
-            '<option value="jet"' + (state.currentColormap === 'jet' ? ' selected' : '') + '>Jet</option>' +
-            '<option value="turbo"' + (state.currentColormap === 'turbo' ? ' selected' : '') + '>Turbo</option>' +
-            '<option value="coolwarm"' + (state.currentColormap === 'coolwarm' ? ' selected' : '') + '>Coolwarm</option>' +
-            '<option value="rdbu"' + (state.currentColormap === 'rdbu' ? ' selected' : '') + '>RdBu</option>';
-
-        for (var cname2 in COLORMAPS) {
-            if (COLORMAPS.hasOwnProperty(cname2) && BUILTIN_COLORMAP_NAMES.indexOf(cname2) === -1) {
-                html += '<option value="' + escapeHtml(cname2) + '"' + (state.currentColormap === cname2 ? ' selected' : '') + '>' + escapeHtml(cname2) + '</option>';
-            }
-        }
-
-        html += '</select>';
+            renderColormapOptions() +
+            '</select>';
 
         if (ndim >= 3) {
             var numSlices = value.shape[state.currentAxis] || 0;
@@ -3252,8 +3251,30 @@ function renderPreview(name, value) {
 
 function refreshPreview() {
     if (!state.fullVariableData || !state.currentVariableData) return;
+    // Preserve focus and selection across re-render so controls (slice slider,
+    // colormap select, window/level inputs) do not lose focus mid-interaction.
+    var prevActive = document.activeElement;
+    var focusId = null;
+    var selStart = null, selEnd = null, selDir = null;
+    if (prevActive && prevActive !== document.body && mainContent.contains(prevActive) && prevActive.id) {
+        focusId = prevActive.id;
+        if (prevActive.selectionStart !== null && prevActive.selectionStart !== undefined) {
+            selStart = prevActive.selectionStart;
+            selEnd = prevActive.selectionEnd;
+            selDir = prevActive.selectionDirection;
+        }
+    }
     mainContent.innerHTML = renderBreadcrumb() + renderPreview(state.currentVariableData.name, state.fullVariableData);
     initPreviewWidgets();
+    if (focusId) {
+        var el = document.getElementById(focusId);
+        if (el) {
+            el.focus();
+            if (selStart !== null && el.setSelectionRange) {
+                try { el.setSelectionRange(selStart, selEnd, selDir); } catch(e) {}
+            }
+        }
+    }
 }
 
 function initPreviewWidgets() {
@@ -3293,8 +3314,8 @@ function setAxis(axis) {
     state.currentSlice = 0;
     state.currentLoadedSliceData = null;
     state.dirty = true;
-    localStorage.setItem('matViewerAxis', axis);
-    localStorage.setItem('matViewerSlice', '0');
+    persistState('axis', axis);
+    persistState('slice', '0');
     sliceCacheClear();
     store.setMany({ currentAxis: state.currentAxis, currentSlice: 0 });
     store.snapshot();
@@ -3323,7 +3344,7 @@ function setAxis(axis) {
 function updateSlice(value) {
     state.currentSlice = parseInt(value);
     state.dirty = true;
-    localStorage.setItem('matViewerSlice', value);
+    persistState('slice', value);
     var sliceValueEl = document.getElementById('sliceValue');
     if (sliceValueEl) sliceValueEl.textContent = value;
 
@@ -3353,7 +3374,7 @@ function updateSlice(value) {
 function setColormap(colormap) {
     state.currentColormap = colormap;
     state.dirty = true;
-    localStorage.setItem('matViewerColormap', colormap);
+    persistState('colormap', colormap);
     store.set('currentColormap', colormap);
     store.snapshot();
     if (state.fullVariableData && state.currentVariableData) {
@@ -3598,7 +3619,7 @@ document.addEventListener('click', function(e) {
         case 'setDisplayMode':
             state.currentDisplayMode = target.getAttribute('data-mode');
             state.dirty = true;
-            localStorage.setItem('matViewerDisplayMode', state.currentDisplayMode);
+            persistState('displayMode', state.currentDisplayMode);
             store.set('currentDisplayMode', state.currentDisplayMode);
             store.snapshot();
             if (state.fullVariableData && state.currentVariableData) {
@@ -3608,14 +3629,14 @@ document.addEventListener('click', function(e) {
         case 'setViewMode':
             state.currentViewMode = target.getAttribute('data-mode');
             state.dirty = true;
-            localStorage.setItem('matViewerViewMode', state.currentViewMode);
+            persistState('viewMode', state.currentViewMode);
             if (state.fullVariableData && state.currentVariableData) {
                 refreshPreview();
             }
             break;
         case 'set1DViewMode':
             state.current1DViewMode = target.getAttribute('data-mode');
-            localStorage.setItem('matViewer1DViewMode', state.current1DViewMode);
+            persistState('viewMode1D', state.current1DViewMode);
             if (state.fullVariableData && state.currentVariableData) {
                 refreshPreview();
             }
@@ -3680,11 +3701,11 @@ exportBtn && exportBtn.addEventListener('click', function() {
 closeSettingsBtn && closeSettingsBtn.addEventListener('click', closeSettings);
 overlay && overlay.addEventListener('click', closeSettings);
 
-var currentTheme = localStorage.getItem('matViewerTheme') || 'auto';
+var currentTheme = readState('theme', 'auto');
 
 function applyTheme(theme) {
     currentTheme = theme;
-    localStorage.setItem('matViewerTheme', theme);
+    persistState('theme', theme);
 
     document.querySelectorAll('.theme-option').forEach(function(opt) {
         opt.classList.remove('active');
@@ -3759,8 +3780,8 @@ contactLink && contactLink.addEventListener('click', function() {
     vscode.postMessage({ command: 'openExternal', url: 'mailto:mawlan.momin@gmail.com?subject=MatrixSpy%20Feedback' });
 });
 
-var savedSidebarCollapsed = localStorage.getItem('matViewerSidebarCollapsed');
-if (savedSidebarCollapsed === 'true') {
+var savedSidebarCollapsed = readState('sidebarCollapsed', null);
+if (savedSidebarCollapsed === true) {
     state.sidebarCollapsed = true;
     sidebar.classList.add('collapsed');
     headerToggle.classList.add('visible');
@@ -3782,19 +3803,17 @@ if (sidebarSearch) {
     });
 }
 
-var COLORMAP_LIST = ['grayscale', 'viridis', 'inferno', 'plasma', 'hot', 'jet', 'turbo', 'coolwarm', 'rdbu'];
-
 function getNextColormap(direction) {
-    var idx = COLORMAP_LIST.indexOf(state.currentColormap);
+    var idx = BUILTIN_COLORMAP_NAMES.indexOf(state.currentColormap);
     if (idx === -1) idx = 0;
-    idx = (idx + direction + COLORMAP_LIST.length) % COLORMAP_LIST.length;
-    return COLORMAP_LIST[idx];
+    idx = (idx + direction + BUILTIN_COLORMAP_NAMES.length) % BUILTIN_COLORMAP_NAMES.length;
+    return BUILTIN_COLORMAP_NAMES[idx];
 }
 
 function switchDisplayMode() {
     state.currentDisplayMode = state.currentDisplayMode === 'image' ? 'table' : 'image';
     state.dirty = true;
-    localStorage.setItem('matViewerDisplayMode', state.currentDisplayMode);
+    persistState('displayMode', state.currentDisplayMode);
     if (state.fullVariableData && state.currentVariableData) {
         refreshPreview();
     }
@@ -3853,7 +3872,7 @@ document.addEventListener('keydown', function(e) {
             if (state.currentDisplayMode !== 'image') {
                 state.currentDisplayMode = 'image';
                 state.dirty = true;
-                localStorage.setItem('matViewerDisplayMode', 'image');
+                persistState('displayMode', 'image');
                 if (state.fullVariableData && state.currentVariableData) {
                     refreshPreview();
                 }

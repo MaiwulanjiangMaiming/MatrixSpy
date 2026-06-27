@@ -8,6 +8,17 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.9] - 2026-06-28
+
+### Changed
+
+- **Unified webview state persistence** — all 26 `localStorage` reads/writes in the webview are migrated to `vscode.getState()` / `vscode.setState()` via `readState` / `persistState` helpers. `localStorage` is not scoped to the workspace and does not survive a panel dispose/reopen cycle; `vscode.setState` is the documented webview API for persisting state across hide/show. Persisted keys: `displayMode`, `viewMode`, `axis`, `slice`, `colormap`, `sidebarCollapsed`, `viewMode1D`, `theme`, plus the previously-migrated `showCount1D` / `showRows2D` / `showCols2D`.
+- **Single colormap constant** — the built-in colormap name list existed twice (`BUILTIN_COLORMAP_NAMES` and `COLORMAP_LIST`) with identical contents. `COLORMAP_LIST` is removed; `getNextColormap` now cycles through `BUILTIN_COLORMAP_NAMES`. The duplicated `<option>` HTML in `render2DArray` and `renderNDArray` is extracted into a single `renderColormapOptions()` helper (built-in labels via `COLORMAP_LABELS` + custom colormaps from `COLORMAPS`).
+
+### Fixed
+
+- **Focus loss on control interaction** — `refreshPreview` now saves the active element's id and selection range before re-rendering and restores focus afterward. Previously, changing colormap / view mode / slice in table mode rebuilt the entire `mainContent.innerHTML`, dropping focus from the slider or select the user was still interacting with.
+
 ## [1.5.8] - 2026-06-28
 
 ### Changed
