@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import * as nls from 'vscode-nls';
 import { MatFileEditorProvider } from './providers/CustomEditorProvider';
-import { MatVariableTreeDataProvider, setCurrentWebviewPanel, showVariable } from './providers/MatVariableTreeDataProvider';
+import { MatVariableTreeDataProvider, MatTreeItem, setCurrentWebviewPanel, showVariable } from './providers/MatVariableTreeDataProvider';
 import { PythonBridge, DependencyCheckResult } from './ipc/PythonBridge';
 import { openFileCommand } from './commands/openFile';
 import { exportCommand } from './commands/exportData';
@@ -37,7 +37,18 @@ export function sendTelemetry(eventName: string, properties?: Record<string, str
     }
 }
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+/**
+ * Public API surface exposed to other extensions via
+ * `vscode.extensions.getExtension<MatrixSpyAPI>('...')`.
+ */
+export interface MatrixSpyAPI {
+    /** Parse a .mat file and return the variable tree without opening an editor. */
+    parseMatFile(uri: vscode.Uri): Promise<MatFileData>;
+    /** Open a .mat file in the MatrixSpy custom editor. */
+    openMatFile(uri: vscode.Uri): Promise<void>;
+}
+
+export async function activate(context: vscode.ExtensionContext): Promise<MatrixSpyAPI> {
     telemetryReporter = new TelemetryReporter(TELEMETRY_KEY);
     context.subscriptions.push(telemetryReporter);
 
@@ -60,6 +71,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // completes. Commands and the sidebar are already registered above,
     // so we let the check run in the background.
     void checkAndShowWelcome(context);
+
+    return {
+        parseMatFile: async (uri: vscode.Uri): Promise<MatFileData> => {
+            const bridge = getPythonBridge();
+            if (!bridge) { throw new Error('MatrixSpy Python bridge not initialized'); }
+            const result = await bridge.parseFile(uri.fsPath);
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to parse MAT file');
+            }
+            return result.data || {};
+        },
+        openMatFile: async (uri: vscode.Uri): Promise<void> => {
+            await vscode.commands.executeCommand('vscode.openWith', uri, 'matrixspy.matFile');
+        }
+    };
 }
 
 async function checkAndShowWelcome(context: vscode.ExtensionContext): Promise<void> {
@@ -405,8 +431,50 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 const uri = vscode.Uri.file(picked.detail);
                 vscode.commands.executeCommand('vscode.openWith', uri, 'matrixspy.matFile');
             }
+        }),
+        vscode.commands.registerCommand('matrixspy.copySummary', async (item?: MatTreeItem) => {
+            if (!item || !item.metadata) {
+                vscode.window.showInformationMessage(localize('noVariableSelected', 'No variable selected.'));
+                return;
+            }
+            const { value, path: varPath } = item.metadata;
+            const summary = buildVariableSummary(varPath, value);
+            await vscode.env.clipboard.writeText(summary);
+            vscode.window.showInformationMessage(localize('summaryCopied', 'Copied summary of {0}', varPath));
         })
     );
+}
+
+/** Build a plain-text summary of a MAT variable for clipboard copy. */
+function buildVariableSummary(varPath: string, value: any): string {
+    const lines: string[] = [`# ${varPath}`];
+    if (value && value._type === 'ndarray') {
+        lines.push(`type:      ndarray`);
+        lines.push(`shape:      [${value.shape.join(', ')}]`);
+        lines.push(`dtype:      ${value.dtype || 'unknown'}`);
+        const stats = value.statistics || value.stats;
+        if (stats) {
+            lines.push('');
+            lines.push('statistics:');
+            if (stats.min !== null && stats.min !== undefined) { lines.push(`  min:       ${stats.min}`); }
+            if (stats.max !== null && stats.max !== undefined) { lines.push(`  max:       ${stats.max}`); }
+            if (stats.mean !== null && stats.mean !== undefined) { lines.push(`  mean:      ${stats.mean}`); }
+            if (stats.std !== null && stats.std !== undefined) { lines.push(`  std:       ${stats.std}`); }
+            if (typeof stats.sparsity === 'number') { lines.push(`  sparsity:  ${(stats.sparsity * 100).toFixed(2)}%`); }
+            if (typeof stats.nan_count === 'number') { lines.push(`  nan_count: ${stats.nan_count}`); }
+        }
+    } else if (value && value._type === 'complex') {
+        lines.push(`type:      complex`);
+        lines.push(`value:     ${value.real}${value.imag >= 0 ? '+' : ''}${value.imag}i`);
+    } else if (typeof value === 'object' && value !== null) {
+        const fields = Object.keys(value).filter(k => k !== '_type');
+        lines.push(`type:      struct (${fields.length} fields)`);
+        if (fields.length > 0) { lines.push(`fields:    ${fields.join(', ')}`); }
+    } else {
+        lines.push(`type:      ${typeof value}`);
+        lines.push(`value:     ${String(value)}`);
+    }
+    return lines.join('\n');
 }
 
 export async function addRecentFile(context: vscode.ExtensionContext, filePath: string): Promise<void> {

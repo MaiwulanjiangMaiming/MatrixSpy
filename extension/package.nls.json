@@ -10,6 +10,7 @@
   "command.matrixspy.resetWelcome.title": "Reset Welcome State",
   "command.matrixspy.compareFiles.title": "Compare with...",
   "command.matrixspy.openRecent.title": "Open Recent MAT File",
+  "command.matrixspy.copySummary.title": "Copy Variable Summary",
   "configuration.matrixspy.pythonPath.description": "Path to Python executable",
   "configuration.matrixspy.maxFileSizeMB.description": "Maximum MAT file size (in MB) to load. Files larger than this are rejected with a clear error. Range: 1–4096 MB.",
   "configuration.matrixspy.maxDataSize.description": "Deprecated: use matrixspy.maxFileSizeMB instead. Previously controlled max file size in MB.",

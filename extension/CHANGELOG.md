@@ -8,6 +8,14 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.11] - 2026-06-28
+
+### Added
+
+- **Rich tree tooltips** — Hovering a variable in the sidebar now shows a Markdown tooltip with the full statistics block (min / max / mean / std / sparsity / NaN count) for arrays, field list for structs, and value for scalars. Previously the tooltip was a single-line plain string with only shape and dtype.
+- **Extension public API** — `activate()` now returns a `MatrixSpyAPI` object so other extensions can call `parseMatFile(uri)` to parse a MAT file programmatically (returns the variable tree without opening an editor) and `openMatFile(uri)` to open a file in the MatrixSpy editor. Accessed via `vscode.extensions.getExtension<MatrixSpyAPI>(...)`.
+- **Copy Variable Summary command** — Right-click any variable in the sidebar tree → "Copy Variable Summary" copies a formatted text summary (name, type, shape, dtype, full statistics block) to the clipboard. Registered as `matrixspy.copySummary` with a `view/item/context` menu contribution on the Variables view.
+
 ## [1.5.10] - 2026-06-28
 
 ### Added
