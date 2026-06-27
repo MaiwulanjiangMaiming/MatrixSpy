@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import * as nls from 'vscode-nls';
 import { MatFileEditorProvider } from './providers/CustomEditorProvider';
-import { MatVariableTreeDataProvider, setCurrentData, setCurrentWebviewPanel, showVariable } from './providers/MatVariableTreeDataProvider';
+import { MatVariableTreeDataProvider, setCurrentWebviewPanel, showVariable } from './providers/MatVariableTreeDataProvider';
 import { PythonBridge, DependencyCheckResult } from './ipc/PythonBridge';
 import { openFileCommand } from './commands/openFile';
 import { exportCommand } from './commands/exportData';
@@ -498,7 +498,6 @@ export function getPythonBridge(): PythonBridge | null {
 }
 
 export function updateTreeData(data: MatFileData): void {
-    setCurrentData(data);
     if (currentTreeDataProvider) {
         currentTreeDataProvider.setData(data);
     }

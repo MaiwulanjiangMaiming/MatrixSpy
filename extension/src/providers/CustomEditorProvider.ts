@@ -101,6 +101,15 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         webviewPanel.onDidChangeViewState(() => {
             if (webviewPanel.active) {
                 updateCurrentWebviewPanel(webviewPanel);
+                // Restore sidebar tree and status bar from cache so they
+                // reflect the now-active file, not the previously-active one.
+                const cachedData = cacheFileData(filePath);
+                if (cachedData) {
+                    updateTreeData(cachedData);
+                    const fileName = path.basename(filePath);
+                    const varCount = Object.keys(cachedData).length;
+                    updateStatusBar(fileName, varCount, null, null);
+                }
             }
         });
 
@@ -167,13 +176,11 @@ export class MatFileEditorProvider implements vscode.CustomReadonlyEditorProvide
         const MAX_RETRIES = 3;
 
         try {
-            this.pythonBridge.setProgressCallback((progress, stage) => {
+            // Progress callback is now passed per-call (keyed by requestId)
+            // so two concurrent loads never deliver each other's events.
+            const result = await this.pythonBridge.parseFile(filePath, (progress, stage) => {
                 webviewPanel.webview.postMessage({ command: 'loadingProgress', progress, stage });
             });
-
-            const result = await this.pythonBridge.parseFile(filePath);
-
-            this.pythonBridge.setProgressCallback(null);
 
             if (result.success && result.data) {
                 cacheFileData(filePath, result.data);

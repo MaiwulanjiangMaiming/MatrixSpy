@@ -2,12 +2,7 @@ import * as vscode from 'vscode';
 import { PythonBridge } from '../ipc/PythonBridge';
 import { MatFileData } from '../types';
 
-let currentData: MatFileData | null = null;
 let currentWebviewPanel: vscode.WebviewPanel | null = null;
-
-export function setCurrentData(data: MatFileData | null): void {
-    currentData = data;
-}
 
 export function setCurrentWebviewPanel(panel: vscode.WebviewPanel | null): void {
     currentWebviewPanel = panel;
@@ -27,6 +22,8 @@ export class MatVariableTreeDataProvider implements vscode.TreeDataProvider<MatT
     private _onDidChangeTreeData = new vscode.EventEmitter<MatTreeItem | undefined | null>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
+    /** Single source of truth for the tree. Previously a module-level
+     *  `currentData` shadowed this field, causing state inconsistencies. */
     private data: MatFileData | null = null;
 
     constructor(private readonly pythonBridge: PythonBridge) {}
@@ -46,16 +43,16 @@ export class MatVariableTreeDataProvider implements vscode.TreeDataProvider<MatT
     }
 
     getChildren(element?: MatTreeItem): MatTreeItem[] {
-        if (!this.data && !currentData) {
+        if (!this.data) {
             return [];
         }
 
-        const sourceData = this.data || currentData;
+        const sourceData = this.data;
 
         if (!element) {
-            return Object.keys(sourceData!)
+            return Object.keys(sourceData)
                 .sort()
-                .map(key => this.createTreeItem(key, sourceData![key]));
+                .map(key => this.createTreeItem(key, sourceData[key]));
         }
 
         const value = element.metadata?.value;

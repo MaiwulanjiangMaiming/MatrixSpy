@@ -8,6 +8,17 @@ All notable changes to MatrixSpy will be documented in this file.
 - **New features**: y + 1, z = 0 (e.g., 1.2.1 → 1.3.0)
 - **Major updates**: x + 1, y = z = 0 (e.g., 1.x.x → 2.0.0)
 
+## [1.5.7] - 2026-06-28
+
+### Changed
+
+- **Per-requestId progress routing** — `PythonBridge` now keys progress callbacks by `requestId` in a `Map` instead of a single `onProgressCallback` field. Concurrent `load_file` calls (e.g. opening two MAT files at once) no longer deliver each other's progress events to the wrong webview. The public `setProgressCallback` method is removed; `parseFile` now accepts an optional `progressCallback` parameter.
+- **Idle-only heartbeat** — the 30s heartbeat now skips its ping when there are pending requests, so a daemon busy parsing a large file is no longer killed by a false 5s heartbeat timeout. The request's own timeout is the liveness proof while busy; the ping only runs when the daemon is idle.
+- **Dynamic request timeout** — `load_file` timeout is now `60s + 2s/MB` (capped at 300s) based on file size, instead of a flat 60s. `load_slice` uses 30s. This prevents false timeouts on large v7.3 files while keeping fast failure for stuck slice requests.
+- **Safe stdout buffer truncation** — when the stdout buffer exceeds 64MB it now keeps the tail after the last newline (preserving the most recent in-progress response) instead of clearing everything, which previously caused large `load_file` responses to be lost mid-stream.
+- **Tab switch refreshes sidebar & status bar** — `onDidChangeViewState` now restores the variable tree and status bar from `fileDataCache` for the newly-active file, so switching tabs no longer leaves the sidebar showing the previous file's variables.
+- **Single-source tree data** — `MatVariableTreeDataProvider` no longer keeps a module-level `currentData` shadowing its instance `this.data`. The `setCurrentData` export is removed; `updateTreeData` now calls `setData` directly. This eliminates the state-inconsistency risk where `setData` updated the instance but `setCurrentData` updated the module global.
+
 ## [1.5.6] - 2026-06-28
 
 ### Fixed
